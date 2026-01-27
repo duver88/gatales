@@ -1,0 +1,382 @@
+{
+  "name": "Gatales - Hotmart Webhooks",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "hotmart-webhook",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook-trigger",
+      "name": "Hotmart Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{ $json.event }}",
+              "operation": "equals",
+              "value2": "PURCHASE_COMPLETE"
+            }
+          ]
+        }
+      },
+      "id": "is-purchase",
+      "name": "Is Purchase?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [480, 200]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{ $json.event }}",
+              "operation": "contains",
+              "value2": "CANCEL"
+            }
+          ]
+        }
+      },
+      "id": "is-cancel",
+      "name": "Is Cancel?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [480, 400]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{ $json.event }}",
+              "operation": "equals",
+              "value2": "PURCHASE_REFUNDED"
+            }
+          ]
+        }
+      },
+      "id": "is-refund",
+      "name": "Is Refund?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [480, 600]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{ $json.event }}",
+              "operation": "equals",
+              "value2": "PURCHASE_APPROVED"
+            }
+          ]
+        }
+      },
+      "id": "is-renewal",
+      "name": "Is Renewal?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [480, 800]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{$env.GATALES_API_URL}}/api/webhooks/purchase",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Webhook-Secret",
+              "value": "={{$env.WEBHOOK_SECRET}}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "email",
+              "value": "={{ $json.data.buyer.email }}"
+            },
+            {
+              "name": "name",
+              "value": "={{ $json.data.buyer.name }}"
+            },
+            {
+              "name": "product_id",
+              "value": "={{ $json.data.product.id }}"
+            },
+            {
+              "name": "subscription_id",
+              "value": "={{ $json.data.subscription?.subscriber?.code || '' }}"
+            },
+            {
+              "name": "transaction_id",
+              "value": "={{ $json.data.purchase?.transaction || '' }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "send-purchase",
+      "name": "Send Purchase to API",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [720, 200]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{$env.GATALES_API_URL}}/api/webhooks/cancel",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Webhook-Secret",
+              "value": "={{$env.WEBHOOK_SECRET}}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "email",
+              "value": "={{ $json.data.buyer.email }}"
+            },
+            {
+              "name": "subscription_id",
+              "value": "={{ $json.data.subscription?.subscriber?.code || '' }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "send-cancel",
+      "name": "Send Cancel to API",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [720, 400]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{$env.GATALES_API_URL}}/api/webhooks/refund",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Webhook-Secret",
+              "value": "={{$env.WEBHOOK_SECRET}}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "email",
+              "value": "={{ $json.data.buyer.email }}"
+            },
+            {
+              "name": "subscription_id",
+              "value": "={{ $json.data.subscription?.subscriber?.code || '' }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "send-refund",
+      "name": "Send Refund to API",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [720, 600]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{$env.GATALES_API_URL}}/api/webhooks/renewal",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Webhook-Secret",
+              "value": "={{$env.WEBHOOK_SECRET}}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "email",
+              "value": "={{ $json.data.buyer.email }}"
+            },
+            {
+              "name": "subscription_id",
+              "value": "={{ $json.data.subscription?.subscriber?.code || '' }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "send-renewal",
+      "name": "Send Renewal to API",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [720, 800]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { \"success\": true, \"message\": \"Webhook received\" } }}"
+      },
+      "id": "response-success",
+      "name": "Response Success",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [960, 500]
+    }
+  ],
+  "connections": {
+    "Hotmart Webhook": {
+      "main": [
+        [
+          {
+            "node": "Is Purchase?",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Is Cancel?",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Is Refund?",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Is Renewal?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is Purchase?": {
+      "main": [
+        [
+          {
+            "node": "Send Purchase to API",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is Cancel?": {
+      "main": [
+        [
+          {
+            "node": "Send Cancel to API",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is Refund?": {
+      "main": [
+        [
+          {
+            "node": "Send Refund to API",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is Renewal?": {
+      "main": [
+        [
+          {
+            "node": "Send Renewal to API",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Purchase to API": {
+      "main": [
+        [
+          {
+            "node": "Response Success",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Cancel to API": {
+      "main": [
+        [
+          {
+            "node": "Response Success",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Refund to API": {
+      "main": [
+        [
+          {
+            "node": "Response Success",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Renewal to API": {
+      "main": [
+        [
+          {
+            "node": "Response Success",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "1",
+  "meta": {
+    "instanceId": "gatales-hotmart-webhooks"
+  },
+  "tags": []
+}

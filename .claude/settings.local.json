@@ -1,0 +1,18 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(php:*)",
+      "Bash(composer:*)",
+      "Bash(node:*)",
+      "Bash(npm --version)",
+      "Bash(npm create:*)",
+      "Bash(npm install:*)",
+      "Bash(npx tailwindcss:*)",
+      "Bash(./node_modules/.bin/tailwindcss:*)",
+      "Bash(npm ls:*)",
+      "Bash(npm run build:*)",
+      "Bash(findstr:*)",
+      "Bash(Get-Content storage/logs/laravel.log -Tail 100)"
+    ]
+  }
+}
