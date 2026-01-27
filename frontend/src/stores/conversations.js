@@ -71,6 +71,14 @@ export const useConversationsStore = defineStore('conversations', () => {
       await chatApi.deleteConversation(id)
       conversations.value = conversations.value.filter(c => c.id !== id)
 
+      // Also remove from grouped conversations
+      for (const key in groupedConversations.value) {
+        const group = groupedConversations.value[key]
+        if (group.conversations) {
+          group.conversations = group.conversations.filter(c => c.id !== id)
+        }
+      }
+
       // If deleted current conversation, select another
       if (currentConversationId.value === id) {
         currentConversationId.value = conversations.value[0]?.id || null
@@ -85,6 +93,14 @@ export const useConversationsStore = defineStore('conversations', () => {
     try {
       await chatApi.archiveConversation(id)
       conversations.value = conversations.value.filter(c => c.id !== id)
+
+      // Also remove from grouped conversations
+      for (const key in groupedConversations.value) {
+        const group = groupedConversations.value[key]
+        if (group.conversations) {
+          group.conversations = group.conversations.filter(c => c.id !== id)
+        }
+      }
 
       if (currentConversationId.value === id) {
         currentConversationId.value = conversations.value[0]?.id || null

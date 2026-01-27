@@ -66,14 +66,47 @@ class TokenService
             ->orderBy('date')
             ->get();
 
-        return $usage->map(function ($item) {
+        $totalInput = 0;
+        $totalOutput = 0;
+
+        $daily = $usage->map(function ($item) use (&$totalInput, &$totalOutput) {
+            $input = (int) $item->input;
+            $output = (int) $item->output;
+            $totalInput += $input;
+            $totalOutput += $output;
+
             return [
                 'date' => $item->date->format('Y-m-d'),
-                'tokens_input' => (int) $item->input,
-                'tokens_output' => (int) $item->output,
-                'total' => (int) $item->input + (int) $item->output,
+                'tokens_input' => $input,
+                'tokens_output' => $output,
+                'total' => $input + $output,
+                'estimated_cost' => $this->calculateCost($input, $output),
             ];
         })->toArray();
+
+        // All-time totals for this user
+        $allTime = TokenUsage::where('user_id', $user->id)
+            ->selectRaw('COALESCE(SUM(tokens_input), 0) as input, COALESCE(SUM(tokens_output), 0) as output')
+            ->first();
+
+        $allTimeInput = (int) $allTime->input;
+        $allTimeOutput = (int) $allTime->output;
+
+        return [
+            'daily' => $daily,
+            'period_totals' => [
+                'tokens_input' => $totalInput,
+                'tokens_output' => $totalOutput,
+                'total' => $totalInput + $totalOutput,
+                'estimated_cost' => $this->calculateCost($totalInput, $totalOutput),
+            ],
+            'all_time_totals' => [
+                'tokens_input' => $allTimeInput,
+                'tokens_output' => $allTimeOutput,
+                'total' => $allTimeInput + $allTimeOutput,
+                'estimated_cost' => $this->calculateCost($allTimeInput, $allTimeOutput),
+            ],
+        ];
     }
 
     /**

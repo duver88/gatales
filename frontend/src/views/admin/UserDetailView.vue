@@ -200,6 +200,66 @@ function getStatusClass(status) {
         </div>
       </div>
 
+      <!-- Token Usage History -->
+      <div class="card mb-8" v-if="tokenStats">
+        <h2 class="text-lg font-semibold text-gatales-text mb-4">Consumo de Tokens</h2>
+
+        <!-- Totals Summary -->
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+          <div class="bg-gatales-input rounded-lg p-3">
+            <p class="text-xs text-gatales-text-secondary">Total Historico</p>
+            <p class="text-lg font-bold text-gatales-text">{{ formatNumber(tokenStats.all_time_totals?.total || 0) }}</p>
+            <p class="text-xs text-gatales-text-secondary">tokens</p>
+          </div>
+          <div class="bg-gatales-input rounded-lg p-3">
+            <p class="text-xs text-gatales-text-secondary">Costo Total</p>
+            <p class="text-lg font-bold text-green-400">${{ (tokenStats.all_time_totals?.estimated_cost || 0).toFixed(4) }}</p>
+            <p class="text-xs text-gatales-text-secondary">USD</p>
+          </div>
+          <div class="bg-gatales-input rounded-lg p-3">
+            <p class="text-xs text-gatales-text-secondary">Ultimos 30 dias</p>
+            <p class="text-lg font-bold text-gatales-text">{{ formatNumber(tokenStats.period_totals?.total || 0) }}</p>
+            <p class="text-xs text-gatales-text-secondary">tokens</p>
+          </div>
+          <div class="bg-gatales-input rounded-lg p-3">
+            <p class="text-xs text-gatales-text-secondary">Costo 30 dias</p>
+            <p class="text-lg font-bold text-green-400">${{ (tokenStats.period_totals?.estimated_cost || 0).toFixed(4) }}</p>
+            <p class="text-xs text-gatales-text-secondary">USD</p>
+          </div>
+        </div>
+
+        <!-- Daily Breakdown Table -->
+        <div v-if="tokenStats.daily?.length > 0" class="overflow-x-auto">
+          <table class="w-full text-sm">
+            <thead>
+              <tr class="border-b border-gatales-border text-left">
+                <th class="py-2 px-3 text-gatales-text-secondary font-medium">Fecha</th>
+                <th class="py-2 px-3 text-gatales-text-secondary font-medium text-right">Input</th>
+                <th class="py-2 px-3 text-gatales-text-secondary font-medium text-right">Output</th>
+                <th class="py-2 px-3 text-gatales-text-secondary font-medium text-right">Total</th>
+                <th class="py-2 px-3 text-gatales-text-secondary font-medium text-right">Costo USD</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr
+                v-for="day in [...tokenStats.daily].reverse()"
+                :key="day.date"
+                class="border-b border-gatales-border/50 hover:bg-gatales-input/50"
+              >
+                <td class="py-2 px-3 text-gatales-text">{{ day.date }}</td>
+                <td class="py-2 px-3 text-gatales-text text-right">{{ formatNumber(day.tokens_input) }}</td>
+                <td class="py-2 px-3 text-gatales-text text-right">{{ formatNumber(day.tokens_output) }}</td>
+                <td class="py-2 px-3 text-gatales-text font-medium text-right">{{ formatNumber(day.total) }}</td>
+                <td class="py-2 px-3 text-green-400 text-right">${{ day.estimated_cost.toFixed(4) }}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <div v-else class="text-gatales-text-secondary text-sm">
+          No hay datos de consumo
+        </div>
+      </div>
+
       <!-- Recent Messages -->
       <div class="card mb-8">
         <h2 class="text-lg font-semibold text-gatales-text mb-4">Mensajes Recientes</h2>

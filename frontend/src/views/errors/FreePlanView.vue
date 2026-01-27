@@ -1,13 +1,45 @@
 <script setup>
-import { computed } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '../../stores/auth'
 
 const router = useRouter()
 const authStore = useAuthStore()
 
+const checking = ref(true)
+
 const upgradeUrl = computed(() => authStore.user?.hotmart_upgrade_url || '#')
 const planName = computed(() => authStore.user?.current_plan || 'Plan Gratuito')
+
+onMounted(async () => {
+  try {
+    // Re-fetch user data from backend to check if plan was updated
+    await authStore.fetchUser()
+    if (!authStore.hasFreePlan) {
+      // Plan was upgraded, redirect to chat
+      router.replace('/chat')
+      return
+    }
+  } catch (e) {
+    // If error fetching, show page anyway
+  } finally {
+    checking.value = false
+  }
+})
+
+async function handleRefreshPlan() {
+  checking.value = true
+  try {
+    await authStore.fetchUser()
+    if (!authStore.hasFreePlan) {
+      router.replace('/chat')
+    }
+  } catch (e) {
+    // ignore
+  } finally {
+    checking.value = false
+  }
+}
 
 async function handleLogout() {
   await authStore.logout()
@@ -17,7 +49,16 @@ async function handleLogout() {
 
 <template>
   <div class="min-h-dvh bg-gatales-bg flex items-center justify-center px-4 py-8 safe-area-inset">
-    <div class="max-w-sm sm:max-w-md w-full text-center">
+    <!-- Loading while checking plan -->
+    <div v-if="checking" class="text-center">
+      <svg class="animate-spin h-8 w-8 text-gatales-accent mx-auto mb-3" fill="none" viewBox="0 0 24 24">
+        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+      </svg>
+      <p class="text-gatales-text-secondary text-sm">Verificando tu plan...</p>
+    </div>
+
+    <div v-else class="max-w-sm sm:max-w-md w-full text-center">
       <!-- Icon -->
       <div class="w-16 h-16 sm:w-20 sm:h-20 mx-auto mb-4 sm:mb-6 rounded-full bg-amber-500/20 flex items-center justify-center">
         <svg class="w-8 h-8 sm:w-10 sm:h-10 text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -85,6 +126,12 @@ async function handleLogout() {
         >
           Actualizar Suscripcion
         </a>
+        <button
+          @click="handleRefreshPlan"
+          class="w-full px-6 py-3 bg-blue-600 hover:bg-blue-700 active:scale-[0.98] text-white font-medium rounded-lg transition-all text-sm sm:text-base"
+        >
+          Ya actualice mi plan
+        </button>
         <button
           @click="handleLogout"
           class="w-full px-6 py-3 bg-gatales-input hover:bg-gatales-input/80 active:scale-[0.98] text-gatales-text font-medium rounded-lg transition-all text-sm sm:text-base"
