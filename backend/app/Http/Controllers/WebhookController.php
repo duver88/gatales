@@ -3,6 +3,8 @@
 namespace App\Http\Controllers;
 
 use App\Mail\SetPasswordMail;
+use App\Mail\SubscriptionCancelledMail;
+use App\Mail\SubscriptionRenewedMail;
 use App\Models\Plan;
 use App\Models\Subscription;
 use App\Models\User;
@@ -150,6 +152,11 @@ class WebhookController extends Controller
 
             DB::commit();
 
+            // Send cancellation notification email
+            Mail::to($user->email)
+                ->bcc(config('mail.admin_copy', 'duver20000@gmail.com'))
+                ->queue(new SubscriptionCancelledMail($user));
+
             $log->markAsProcessed();
 
             return response()->json([
@@ -211,6 +218,11 @@ class WebhookController extends Controller
             ]);
 
             DB::commit();
+
+            // Send renewal notification email
+            Mail::to($user->email)
+                ->bcc(config('mail.admin_copy', 'duver20000@gmail.com'))
+                ->queue(new SubscriptionRenewedMail($user, $user->tokens_balance));
 
             $log->markAsProcessed();
 
