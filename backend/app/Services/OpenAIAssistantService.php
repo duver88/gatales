@@ -63,9 +63,7 @@ class OpenAIAssistantService
             $params['tools'] = [
                 [
                     'type' => 'file_search',
-                    'file_search' => [
-                        'vector_store_ids' => [$assistant->openai_vector_store_id],
-                    ],
+                    'vector_store_ids' => [$assistant->openai_vector_store_id],
                 ],
             ];
         }
@@ -124,9 +122,7 @@ class OpenAIAssistantService
             $params['tools'] = [
                 [
                     'type' => 'file_search',
-                    'file_search' => [
-                        'vector_store_ids' => [$assistant->openai_vector_store_id],
-                    ],
+                    'vector_store_ids' => [$assistant->openai_vector_store_id],
                 ],
             ];
         }
@@ -689,9 +685,7 @@ class OpenAIAssistantService
             $params['tools'] = [
                 [
                     'type' => 'file_search',
-                    'file_search' => [
-                        'vector_store_ids' => [$assistant->openai_vector_store_id],
-                    ],
+                    'vector_store_ids' => [$assistant->openai_vector_store_id],
                 ],
             ];
         }
