@@ -9,6 +9,7 @@ use App\Services\OpenAIService;
 use App\Services\TokenService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Str;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
@@ -36,7 +37,9 @@ class ChatController extends Controller
 
         $assistant = $conversation->assistant ?? $user->getAssistant();
 
+        // Only select necessary columns for better performance
         $messages = $conversation->messages()
+            ->select(['id', 'role', 'content', 'created_at'])
             ->orderBy('created_at', 'asc')
             ->get()
             ->map(function ($message) {
@@ -535,23 +538,27 @@ class ChatController extends Controller
 
     /**
      * Get available assistants for the user to choose from
+     * Cached for 5 minutes to improve performance
      */
     public function assistants(Request $request): JsonResponse
     {
         $user = $request->user();
 
-        $assistants = Assistant::active()
-            ->orderBy('name')
-            ->get()
-            ->map(function ($assistant) {
-                return [
-                    'id' => $assistant->id,
-                    'name' => $assistant->assistant_display_name,
-                    'description' => $assistant->description,
-                    'is_default' => $assistant->is_default,
-                    'avatar_url' => $assistant->avatar_url,
-                ];
-            });
+        // Cache assistants list for 5 minutes
+        $assistants = Cache::remember('active_assistants', 300, function () {
+            return Assistant::active()
+                ->orderBy('name')
+                ->get()
+                ->map(function ($assistant) {
+                    return [
+                        'id' => $assistant->id,
+                        'name' => $assistant->assistant_display_name,
+                        'description' => $assistant->description,
+                        'is_default' => $assistant->is_default,
+                        'avatar_url' => $assistant->avatar_url,
+                    ];
+                });
+        });
 
         return response()->json([
             'success' => true,

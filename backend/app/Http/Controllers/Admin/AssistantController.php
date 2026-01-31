@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Assistant;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Str;
 use OpenAI\Laravel\Facades\OpenAI;
 
@@ -80,6 +81,9 @@ class AssistantController extends Controller
 
         $assistant = Assistant::create($validated);
 
+        // Clear assistants cache
+        Cache::forget('active_assistants');
+
         return response()->json([
             'success' => true,
             'message' => 'Asistente creado correctamente',
@@ -119,6 +123,9 @@ class AssistantController extends Controller
 
         $assistant->update($validated);
 
+        // Clear assistants cache
+        Cache::forget('active_assistants');
+
         return response()->json([
             'success' => true,
             'message' => 'Asistente actualizado correctamente',
@@ -149,6 +156,9 @@ class AssistantController extends Controller
 
         $assistant->delete();
 
+        // Clear assistants cache
+        Cache::forget('active_assistants');
+
         return response()->json([
             'success' => true,
             'message' => 'Asistente eliminado correctamente',
@@ -168,6 +178,9 @@ class AssistantController extends Controller
         }
 
         Assistant::setDefault($assistant->id);
+
+        // Clear assistants cache
+        Cache::forget('active_assistants');
 
         return response()->json([
             'success' => true,

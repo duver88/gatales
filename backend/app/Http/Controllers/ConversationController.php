@@ -87,7 +87,12 @@ class ConversationController extends Controller
             ], 403);
         }
 
+        // Eager load assistant to avoid N+1
+        $conversation->load('assistant:id,assistant_display_name');
+
+        // Only select necessary columns from messages
         $messages = $conversation->messages()
+            ->select(['id', 'role', 'content', 'created_at'])
             ->orderBy('created_at', 'asc')
             ->get()
             ->map(function ($message) {
