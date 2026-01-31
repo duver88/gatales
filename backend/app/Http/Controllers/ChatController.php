@@ -353,8 +353,6 @@ class ChatController extends Controller
             'Cache-Control' => 'no-cache, no-store, must-revalidate',
             'Connection' => 'keep-alive',
             'X-Accel-Buffering' => 'no',
-            'Content-Encoding' => 'none',
-            'Transfer-Encoding' => 'chunked',
         ]);
     }
 
