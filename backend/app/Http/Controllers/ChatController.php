@@ -335,11 +335,24 @@ class ChatController extends Controller
                 }
 
                 // Deduct tokens
+                $totalTokensToDeduct = $tokensInput + $tokensOutput;
+                Log::info('Deducting tokens', [
+                    'user_id' => $userId,
+                    'tokens_input' => $tokensInput,
+                    'tokens_output' => $tokensOutput,
+                    'total' => $totalTokensToDeduct,
+                    'balance_before' => $user->tokens_balance,
+                ]);
                 $this->tokenService->deductTokens($user, $tokensInput, $tokensOutput);
 
                 // Refresh
                 $user->refresh();
                 $conversation->refresh();
+
+                Log::info('Tokens deducted', [
+                    'user_id' => $userId,
+                    'balance_after' => $user->tokens_balance,
+                ]);
 
                 // Send done event
                 $this->sendSSE('done', [
@@ -616,31 +629,17 @@ class ChatController extends Controller
         $curlErrno = curl_errno($ch);
         curl_close($ch);
 
-        // ALWAYS log for debugging (to diagnose GPT-5 issues)
-        $uniqueEventTypes = array_unique($state->eventTypes);
-        Log::info('OpenAI Responses API result', [
-            'http_code' => $httpCode,
-            'success' => $success,
-            'curl_error' => $curlError ?: null,
-            'curl_errno' => $curlErrno ?: null,
-            'api_error' => $state->errorMessage,
-            'content_length' => strlen($state->fullContent),
-            'content_preview' => substr($state->fullContent, 0, 200),
-            'event_types_received' => $uniqueEventTypes,
-            'model' => $assistant->model,
-            'tokens_input' => $state->tokensInput,
-            'tokens_output' => $state->tokensOutput,
-        ]);
-
-        // Log debug events separately for better visibility
-        if (empty($state->fullContent)) {
-            // Truncate each event to avoid huge logs
-            $truncatedEvents = [];
-            foreach ($state->debugEvents as $type => $json) {
-                $truncatedEvents[$type] = strlen($json) > 2000 ? substr($json, 0, 2000) . '...[TRUNCATED]' : $json;
-            }
-            Log::warning('No content extracted - dumping event samples', [
-                'events' => $truncatedEvents,
+        // Log result summary (only warnings and errors for issues)
+        if ($httpCode !== 200 || !$success || $state->errorMessage || empty($state->fullContent)) {
+            $uniqueEventTypes = array_unique($state->eventTypes);
+            Log::warning('OpenAI Responses API issue', [
+                'http_code' => $httpCode,
+                'curl_error' => $curlError ?: null,
+                'api_error' => $state->errorMessage,
+                'content_length' => strlen($state->fullContent),
+                'event_types' => $uniqueEventTypes,
+                'model' => $assistant->model,
+                'tokens' => $state->tokensInput + $state->tokensOutput,
             ]);
         }
 
