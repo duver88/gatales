@@ -102,6 +102,10 @@ export const chatApi = {
     const baseURL = import.meta.env.VITE_API_URL
     let receivedDone = false
 
+    // AbortController with 5 minute timeout for GPT-5 with knowledge base
+    const controller = new AbortController()
+    const timeoutId = setTimeout(() => controller.abort(), 300000) // 5 minutes
+
     try {
       const response = await fetch(`${baseURL}/conversations/${id}/messages/stream`, {
         method: 'POST',
@@ -111,6 +115,7 @@ export const chatApi = {
           'Authorization': `Bearer ${token}`,
         },
         body: JSON.stringify({ message }),
+        signal: controller.signal,
       })
 
       if (!response.ok) {
@@ -165,7 +170,13 @@ export const chatApi = {
         onDone({ message_id: null, tokens_used: 0, tokens_balance: null, conversation: null })
       }
     } catch (error) {
-      onError({ message: error.message })
+      if (error.name === 'AbortError') {
+        onError({ message: 'La solicitud tardó demasiado. Por favor, intenta de nuevo.' })
+      } else {
+        onError({ message: error.message })
+      }
+    } finally {
+      clearTimeout(timeoutId)
     }
   },
 }
@@ -248,6 +259,10 @@ export const adminApi = {
     const baseURL = import.meta.env.VITE_API_URL
     let receivedDone = false
 
+    // AbortController with 5 minute timeout for GPT-5 with knowledge base
+    const controller = new AbortController()
+    const timeoutId = setTimeout(() => controller.abort(), 300000) // 5 minutes
+
     try {
       const response = await fetch(`${baseURL}/admin/test-conversations/${id}/messages/stream`, {
         method: 'POST',
@@ -257,6 +272,7 @@ export const adminApi = {
           'Authorization': `Bearer ${token}`,
         },
         body: JSON.stringify({ message }),
+        signal: controller.signal,
       })
 
       if (!response.ok) {
@@ -307,7 +323,13 @@ export const adminApi = {
         onDone({ message_id: null, tokens_used: 0, conversation: null })
       }
     } catch (error) {
-      onError({ message: error.message })
+      if (error.name === 'AbortError') {
+        onError({ message: 'La solicitud tardó demasiado. Por favor, intenta de nuevo.' })
+      } else {
+        onError({ message: error.message })
+      }
+    } finally {
+      clearTimeout(timeoutId)
     }
   },
 }

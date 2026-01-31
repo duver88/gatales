@@ -213,10 +213,11 @@ class OpenAIAssistantService
         // Remove null values
         $params = array_filter($params, fn($v) => $v !== null);
 
+        // 5 minute timeout for GPT-5 with file_search (knowledge base can be slow)
         $response = Http::withHeaders([
             'Authorization' => 'Bearer ' . $apiKey,
             'Content-Type' => 'application/json',
-        ])->timeout(120)->post('https://api.openai.com/v1/responses', $params);
+        ])->timeout(300)->post('https://api.openai.com/v1/responses', $params);
 
         if (!$response->successful()) {
             $error = $response->json();
@@ -258,7 +259,7 @@ class OpenAIAssistantService
                 'Accept: text/event-stream',
             ],
             CURLOPT_RETURNTRANSFER => false,
-            CURLOPT_TIMEOUT => 120,
+            CURLOPT_TIMEOUT => 300, // 5 minutes for GPT-5 with file_search
             CURLOPT_CONNECTTIMEOUT => 30,
             CURLOPT_WRITEFUNCTION => function($ch, $data) use (&$chunks, &$buffer, &$tokensInput, &$tokensOutput, &$messageId, &$errorMessage) {
                 $buffer .= $data;

@@ -10,7 +10,9 @@ use App\Services\TokenService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
+use OpenAI\Laravel\Facades\OpenAI;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class ChatController extends Controller
@@ -207,9 +209,8 @@ class ChatController extends Controller
         // Explicitly get and validate the user ID
         $userId = $user->id;
         if (!$userId || !is_numeric($userId) || $userId <= 0) {
-            \Log::error('User ID invalid in streaming endpoint', [
+            Log::error('User ID invalid in streaming endpoint', [
                 'user_id' => $userId,
-                'user_exists' => (bool)$user,
                 'conversation_id' => $conversation->id,
             ]);
             return $this->streamError('ID de usuario invalido', 401);
@@ -234,8 +235,10 @@ class ChatController extends Controller
         }
 
         $message = $validated['message'];
+        $assistant = $conversation->assistant ?? $user->getAssistant();
+        $usesResponsesApi = $assistant && $assistant->usesResponsesApi();
 
-        return new StreamedResponse(function () use ($user, $userId, $message, $conversation) {
+        return new StreamedResponse(function () use ($user, $userId, $message, $conversation, $assistant, $usesResponsesApi) {
             // Deshabilitar TODOS los buffers de forma agresiva
             @ini_set('output_buffering', 'off');
             @ini_set('zlib.output_compression', false);
@@ -278,24 +281,36 @@ class ChatController extends Controller
                     'user_message_id' => $userMessage->id,
                 ]);
 
-                // Stream the response
                 $fullContent = '';
                 $tokensInput = 0;
                 $tokensOutput = 0;
                 $messageId = null;
 
-                foreach ($this->openAIService->sendMessageStreamed($user, $message, $conversation) as $chunk) {
-                    if ($chunk['type'] === 'content') {
-                        $fullContent .= $chunk['content'];
-                        $this->sendSSE('content', [
-                            'text' => $chunk['content'],
-                        ]);
-                    } elseif ($chunk['type'] === 'done') {
-                        $tokensInput = $chunk['tokens_input'];
-                        $tokensOutput = $chunk['tokens_output'];
-                        $messageId = $chunk['message_id'];
-                        if (isset($chunk['full_content'])) {
-                            $fullContent = $chunk['full_content'];
+                if ($usesResponsesApi) {
+                    // Use direct cURL streaming for Responses API (real-time)
+                    $this->streamWithResponsesApi(
+                        $user,
+                        $message,
+                        $assistant,
+                        $conversation,
+                        $fullContent,
+                        $tokensInput,
+                        $tokensOutput,
+                        $messageId
+                    );
+                } else {
+                    // Use Chat Completions API streaming (works with generator)
+                    foreach ($this->openAIService->sendMessageStreamed($user, $message, $conversation) as $chunk) {
+                        if ($chunk['type'] === 'content') {
+                            $fullContent .= $chunk['content'];
+                            $this->sendSSE('content', ['text' => $chunk['content']]);
+                        } elseif ($chunk['type'] === 'done') {
+                            $tokensInput = $chunk['tokens_input'];
+                            $tokensOutput = $chunk['tokens_output'];
+                            $messageId = $chunk['message_id'];
+                            if (isset($chunk['full_content'])) {
+                                $fullContent = $chunk['full_content'];
+                            }
                         }
                     }
                 }
@@ -338,6 +353,12 @@ class ChatController extends Controller
                 ]);
 
             } catch (\Exception $e) {
+                Log::error('Streaming error', [
+                    'user_id' => $userId,
+                    'conversation_id' => $conversation->id,
+                    'error' => $e->getMessage(),
+                ]);
+
                 // Delete user message on error
                 if (isset($userMessage)) {
                     $userMessage->delete();
@@ -354,6 +375,135 @@ class ChatController extends Controller
             'Connection' => 'keep-alive',
             'X-Accel-Buffering' => 'no',
         ]);
+    }
+
+    /**
+     * Stream response using Responses API with direct cURL (real-time streaming)
+     */
+    private function streamWithResponsesApi(
+        $user,
+        string $message,
+        Assistant $assistant,
+        Conversation $conversation,
+        string &$fullContent,
+        int &$tokensInput,
+        int &$tokensOutput,
+        ?string &$messageId
+    ): void {
+        $apiKey = config('openai.api_key');
+        $contextLimit = (int) ($assistant->context_messages ?? 10);
+
+        // Build input from conversation history
+        $input = $conversation->messages()
+            ->orderBy('created_at', 'desc')
+            ->limit($contextLimit)
+            ->get()
+            ->reverse()
+            ->map(fn($msg) => ['role' => $msg->role, 'content' => $msg->content])
+            ->values()
+            ->toArray();
+
+        $input[] = ['role' => 'user', 'content' => $message];
+
+        // Build request params
+        $params = [
+            'model' => $assistant->model,
+            'instructions' => $assistant->system_prompt,
+            'input' => $input,
+            'max_output_tokens' => (int) $assistant->max_tokens,
+            'stream' => true,
+        ];
+
+        // Add file_search if knowledge base enabled
+        if ($assistant->use_knowledge_base && $assistant->openai_vector_store_id) {
+            $params['tools'] = [
+                [
+                    'type' => 'file_search',
+                    'vector_store_ids' => [$assistant->openai_vector_store_id],
+                ],
+            ];
+        }
+
+        // Use object to store state
+        $state = new \stdClass();
+        $state->fullContent = '';
+        $state->tokensInput = 0;
+        $state->tokensOutput = 0;
+        $state->buffer = '';
+        $state->controller = $this;
+
+        $ch = curl_init('https://api.openai.com/v1/responses');
+
+        curl_setopt_array($ch, [
+            CURLOPT_POST => true,
+            CURLOPT_POSTFIELDS => json_encode($params),
+            CURLOPT_HTTPHEADER => [
+                'Authorization: Bearer ' . $apiKey,
+                'Content-Type: application/json',
+                'Accept: text/event-stream',
+            ],
+            CURLOPT_RETURNTRANSFER => false,
+            CURLOPT_TIMEOUT => 300, // 5 minutes for GPT-5 with file_search
+            CURLOPT_CONNECTTIMEOUT => 30,
+            CURLOPT_WRITEFUNCTION => function($ch, $data) use ($state) {
+                $state->buffer .= $data;
+
+                while (($pos = strpos($state->buffer, "\n")) !== false) {
+                    $line = substr($state->buffer, 0, $pos);
+                    $state->buffer = substr($state->buffer, $pos + 1);
+                    $line = trim($line);
+
+                    if (empty($line) || $line === 'data: [DONE]') continue;
+
+                    if (str_starts_with($line, 'data: ')) {
+                        $jsonStr = substr($line, 6);
+                        $event = json_decode($jsonStr, true);
+
+                        if (!$event) continue;
+
+                        // Handle content delta
+                        $delta = null;
+                        if (isset($event['type']) && $event['type'] === 'response.output_text.delta') {
+                            $delta = $event['delta'] ?? null;
+                        }
+                        if (isset($event['delta']) && is_string($event['delta'])) {
+                            $delta = $event['delta'];
+                        }
+
+                        if ($delta !== null) {
+                            $state->fullContent .= $delta;
+                            // Send SSE event directly for real-time streaming
+                            echo "event: content\n";
+                            echo "data: " . json_encode(['text' => $delta]) . "\n\n";
+                            echo ": " . str_repeat(' ', 256) . "\n\n";
+                            flush();
+                        }
+
+                        // Handle completion
+                        if (isset($event['type']) && $event['type'] === 'response.completed' && isset($event['response'])) {
+                            $state->tokensInput = $event['response']['usage']['input_tokens'] ?? 0;
+                            $state->tokensOutput = $event['response']['usage']['output_tokens'] ?? 0;
+                        }
+                    }
+                }
+                return strlen($data);
+            },
+        ]);
+
+        curl_exec($ch);
+        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $curlError = curl_error($ch);
+        curl_close($ch);
+
+        // Copy state back
+        $fullContent = $state->fullContent;
+        $tokensInput = $state->tokensInput;
+        $tokensOutput = $state->tokensOutput;
+        $messageId = 'resp_' . time();
+
+        if ($httpCode !== 200) {
+            throw new \Exception("API error: HTTP $httpCode - $curlError");
+        }
     }
 
     /**

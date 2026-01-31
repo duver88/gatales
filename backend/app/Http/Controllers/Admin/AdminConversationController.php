@@ -414,9 +414,6 @@ class AdminConversationController extends Controller
                         CURLOPT_WRITEFUNCTION => function($ch, $data) use ($state) {
                             $state->buffer .= $data;
 
-                            // Log raw data for debugging
-                            \Log::debug('OpenAI SSE raw chunk', ['data' => $data]);
-
                             while (($pos = strpos($state->buffer, "\n")) !== false) {
                                 $line = substr($state->buffer, 0, $pos);
                                 $state->buffer = substr($state->buffer, $pos + 1);
@@ -427,9 +424,6 @@ class AdminConversationController extends Controller
                                 if (str_starts_with($line, 'data: ')) {
                                     $jsonStr = substr($line, 6);
                                     $event = json_decode($jsonStr, true);
-
-                                    // Log parsed event
-                                    \Log::debug('OpenAI SSE event', ['event' => $event]);
 
                                     if (!$event) continue;
 
@@ -449,7 +443,6 @@ class AdminConversationController extends Controller
 
                                     if ($delta !== null) {
                                         $state->fullContent .= $delta;
-                                        \Log::info('Sending SSE chunk to client', ['delta' => $delta, 'total_len' => strlen($state->fullContent)]);
                                         echo "event: content\n";
                                         echo "data: " . json_encode(['text' => $delta]) . "\n\n";
                                         // Agregar padding para forzar flush de buffers
@@ -477,13 +470,6 @@ class AdminConversationController extends Controller
                     $fullContent = $state->fullContent;
                     $tokensInput = $state->tokensInput;
                     $tokensOutput = $state->tokensOutput;
-
-                    \Log::info('OpenAI streaming complete', [
-                        'httpCode' => $httpCode,
-                        'contentLength' => strlen($fullContent),
-                        'tokensInput' => $tokensInput,
-                        'tokensOutput' => $tokensOutput,
-                    ]);
 
                     if ($httpCode !== 200) {
                         throw new \Exception("API error: HTTP $httpCode - $curlError");
