@@ -45,26 +45,32 @@ class OpenAIAssistantService
         // Build the input messages array (conversation history + new message)
         $input = $this->buildInputMessages($user, $message, $assistant, $conversation);
 
-        // Build tools array
-        $tools = [];
+        // Build request params
+        $params = [
+            'model' => $assistant->model,
+            'instructions' => $assistant->system_prompt,
+            'input' => $input,
+            'max_output_tokens' => (int) $assistant->max_tokens,
+        ];
+
+        // Add temperature if supported
+        if ($this->supportsTemperature($assistant->model)) {
+            $params['temperature'] = (float) $assistant->temperature;
+        }
+
+        // Add file_search tool if knowledge base is enabled
         if ($assistant->use_knowledge_base && $assistant->openai_vector_store_id) {
-            $tools[] = [
-                'type' => 'file_search',
-                'vector_store_ids' => [$assistant->openai_vector_store_id],
+            $params['tools'] = [['type' => 'file_search']];
+            $params['tool_resources'] = [
+                'file_search' => [
+                    'vector_store_ids' => [$assistant->openai_vector_store_id],
+                ],
             ];
         }
 
         try {
-            // Call the Responses API using HTTP client (openai-php/client may not have responses() yet)
-            $response = $this->callResponsesApi([
-                'model' => $assistant->model,
-                'instructions' => $assistant->system_prompt,
-                'input' => $input,
-                'tools' => $tools,
-                'max_output_tokens' => (int) $assistant->max_tokens,
-                // GPT-5 and o1 models don't support custom temperature
-                'temperature' => $this->supportsTemperature($assistant->model) ? (float) $assistant->temperature : null,
-            ]);
+            // Call the Responses API
+            $response = $this->callResponsesApi($params);
 
             // Extract response content
             $content = $this->extractResponseContent($response);
@@ -97,11 +103,27 @@ class OpenAIAssistantService
     {
         $input = $this->buildInputMessages($user, $message, $assistant, $conversation);
 
-        $tools = [];
+        // Build request params
+        $params = [
+            'model' => $assistant->model,
+            'instructions' => $assistant->system_prompt,
+            'input' => $input,
+            'max_output_tokens' => (int) $assistant->max_tokens,
+            'stream' => true,
+        ];
+
+        // Add temperature if supported
+        if ($this->supportsTemperature($assistant->model)) {
+            $params['temperature'] = (float) $assistant->temperature;
+        }
+
+        // Add file_search tool if knowledge base is enabled
         if ($assistant->use_knowledge_base && $assistant->openai_vector_store_id) {
-            $tools[] = [
-                'type' => 'file_search',
-                'vector_store_ids' => [$assistant->openai_vector_store_id],
+            $params['tools'] = [['type' => 'file_search']];
+            $params['tool_resources'] = [
+                'file_search' => [
+                    'vector_store_ids' => [$assistant->openai_vector_store_id],
+                ],
             ];
         }
 
@@ -112,15 +134,7 @@ class OpenAIAssistantService
             $messageId = null;
 
             // Stream from Responses API
-            foreach ($this->streamResponsesApi([
-                'model' => $assistant->model,
-                'instructions' => $assistant->system_prompt,
-                'input' => $input,
-                'tools' => $tools,
-                'max_output_tokens' => (int) $assistant->max_tokens,
-                'temperature' => $this->supportsTemperature($assistant->model) ? (float) $assistant->temperature : null,
-                'stream' => true,
-            ]) as $chunk) {
+            foreach ($this->streamResponsesApi($params) as $chunk) {
                 if ($chunk['type'] === 'content') {
                     $fullContent .= $chunk['content'];
                     yield $chunk;
@@ -653,23 +667,31 @@ class OpenAIAssistantService
             'content' => $message,
         ];
 
-        $tools = [];
+        // Build request params
+        $params = [
+            'model' => $assistant->model,
+            'instructions' => $assistant->system_prompt,
+            'input' => $input,
+            'max_output_tokens' => (int) $assistant->max_tokens,
+        ];
+
+        // Add temperature if supported
+        if ($this->supportsTemperature($assistant->model)) {
+            $params['temperature'] = (float) $assistant->temperature;
+        }
+
+        // Add file_search tool if knowledge base is enabled
         if ($assistant->use_knowledge_base && $assistant->openai_vector_store_id) {
-            $tools[] = [
-                'type' => 'file_search',
-                'vector_store_ids' => [$assistant->openai_vector_store_id],
+            $params['tools'] = [['type' => 'file_search']];
+            $params['tool_resources'] = [
+                'file_search' => [
+                    'vector_store_ids' => [$assistant->openai_vector_store_id],
+                ],
             ];
         }
 
         try {
-            $response = $this->callResponsesApi([
-                'model' => $assistant->model,
-                'instructions' => $assistant->system_prompt,
-                'input' => $input,
-                'tools' => $tools,
-                'max_output_tokens' => (int) $assistant->max_tokens,
-                'temperature' => $this->supportsTemperature($assistant->model) ? (float) $assistant->temperature : null,
-            ]);
+            $response = $this->callResponsesApi($params);
 
             $content = $this->extractResponseContent($response);
             $tokensInput = $response['usage']['input_tokens'] ?? 0;
