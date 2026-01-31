@@ -225,71 +225,7 @@ async function sendMessage() {
   isThinking.value = true
   isStreaming.value = false
 
-  // Check if assistant uses knowledge base (no streaming available)
-  const assistant = selectedAssistant.value
-  const usesKnowledgeBase = assistant?.use_knowledge_base
-
-  if (usesKnowledgeBase) {
-    // Fall back to non-streaming for knowledge base
-    try {
-      const context = messages.value.slice(0, -2).map(m => ({
-        role: m.role,
-        content: m.content
-      })).filter(m => m.role !== 'error')
-
-      const response = await adminApi.sendTestConversationMessage(
-        currentConversationId.value,
-        userMessage,
-        context
-      )
-      const data = response.data
-
-      // Update assistant message
-      const msgIdx = messages.value.findIndex(m => m.id === assistantMsgId)
-      if (msgIdx !== -1) {
-        messages.value[msgIdx] = {
-          id: data.message?.id || assistantMsgId,
-          role: 'assistant',
-          content: data.response || data.message?.content || data.message,
-          timestamp: new Date(),
-          usedKnowledgeBase: data.used_knowledge_base || false,
-          isStreaming: false
-        }
-      }
-
-      // Update token usage
-      if (data.usage) {
-        tokenUsage.value.prompt += data.usage.prompt_tokens || 0
-        tokenUsage.value.completion += data.usage.completion_tokens || 0
-        tokenUsage.value.total += data.usage.total_tokens || 0
-      }
-
-      // Update conversation in list
-      if (data.conversation) {
-        const idx = testConversations.value.findIndex(c => c.id === currentConversationId.value)
-        if (idx >= 0) {
-          testConversations.value[idx] = { ...testConversations.value[idx], ...data.conversation }
-        }
-      }
-    } catch (error) {
-      console.error('Error sending message:', error)
-      messages.value = messages.value.filter(m => m.id !== tempUserMsg.id && m.id !== assistantMsgId)
-      messages.value.push({
-        id: Date.now() + 2,
-        role: 'error',
-        content: error.response?.data?.message || 'Error al enviar el mensaje',
-        timestamp: new Date()
-      })
-    } finally {
-      loading.value = false
-      isThinking.value = false
-      isStreaming.value = false
-      scrollToBottom()
-    }
-    return
-  }
-
-  // Use streaming for Chat Completions API
+  // Use streaming for all assistants (both Chat Completions and Responses API now support streaming)
   adminApi.sendTestConversationMessageStream(
     currentConversationId.value,
     userMessage,
