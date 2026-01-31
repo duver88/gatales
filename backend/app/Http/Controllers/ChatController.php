@@ -453,13 +453,17 @@ class ChatController extends Controller
         }
 
         // Log request for debugging
-        Log::info('OpenAI Responses API request', [
+        Log::info('OpenAI Responses API streaming request', [
+            'user_id' => $user->id,
+            'conversation_id' => $conversation->id,
             'model' => $assistant->model,
             'reasoning_effort' => $assistant->reasoning_effort ?? 'minimal',
             'has_knowledge_base' => $assistant->use_knowledge_base,
             'vector_store_id' => $assistant->openai_vector_store_id,
             'input_messages_count' => count($input),
             'max_output_tokens' => $params['max_output_tokens'],
+            'has_tools' => isset($params['tools']),
+            'has_reasoning' => isset($params['reasoning']),
         ]);
 
         // Use object to store state
@@ -527,7 +531,6 @@ class ChatController extends Controller
                         $eventType = $event['type'] ?? null;
 
                         // 1. Delta streaming events (preferred for real-time)
-                        // These are the incremental chunks we want for streaming
                         if ($eventType === 'response.output_text.delta' && isset($event['delta'])) {
                             $delta = $event['delta'];
                             $state->receivedDeltas = true;
@@ -546,60 +549,53 @@ class ChatController extends Controller
                         elseif ($eventType === 'response.content_part.added' && isset($event['part']['text']) && !$state->receivedDeltas) {
                             $delta = $event['part']['text'];
                         }
-                        // SKIP "done" events if we already received streaming deltas
-                        // These events contain the FULL text which would duplicate what we already streamed
-                        elseif ($state->receivedDeltas) {
-                            // Already received deltas, skip full-text events to avoid duplication
-                            $delta = null;
+                        // 3. Fallback: direct delta string
+                        elseif (isset($event['delta']) && is_string($event['delta'])) {
+                            $delta = $event['delta'];
+                            $state->receivedDeltas = true;
                         }
-                        // 3. Output item done - ONLY use as fallback if no deltas received
-                        elseif ($eventType === 'response.output_item.done' && isset($event['item'])) {
-                            $item = $event['item'];
-                            $itemType = $item['type'] ?? 'unknown';
+                        // 4. Fallback handlers for when NO streaming deltas were received
+                        // These extract full text from completion events
+                        elseif (!$state->receivedDeltas) {
+                            // Output item done - extract full text from completed item
+                            if ($eventType === 'response.output_item.done' && isset($event['item'])) {
+                                $item = $event['item'];
+                                $itemType = $item['type'] ?? 'unknown';
 
-                            // Skip file_search_call items, extract from everything else
-                            if ($itemType !== 'file_search_call' && $itemType !== 'function_call') {
-                                // Check for text content in the item's content array
-                                if (isset($item['content']) && is_array($item['content'])) {
-                                    foreach ($item['content'] as $content) {
-                                        if (isset($content['text'])) {
-                                            $delta = $content['text'];
-                                            break;
-                                        }
-                                        // Also check for text type content
-                                        if (isset($content['type']) && $content['type'] === 'output_text' && isset($content['text'])) {
-                                            $delta = $content['text'];
-                                            break;
+                                if ($itemType !== 'file_search_call' && $itemType !== 'function_call') {
+                                    if (isset($item['content']) && is_array($item['content'])) {
+                                        foreach ($item['content'] as $content) {
+                                            if (isset($content['text'])) {
+                                                $delta = $content['text'];
+                                                break;
+                                            }
+                                            if (isset($content['type']) && $content['type'] === 'output_text' && isset($content['text'])) {
+                                                $delta = $content['text'];
+                                                break;
+                                            }
                                         }
                                     }
-                                }
-                                // Check for direct text in output
-                                if ($delta === null && isset($item['text'])) {
-                                    $delta = $item['text'];
-                                }
-                                // Check for output array (Responses API format)
-                                if ($delta === null && isset($item['output']) && is_array($item['output'])) {
-                                    foreach ($item['output'] as $output) {
-                                        if (isset($output['text'])) {
-                                            $delta = $output['text'];
-                                            break;
+                                    if ($delta === null && isset($item['text'])) {
+                                        $delta = $item['text'];
+                                    }
+                                    if ($delta === null && isset($item['output']) && is_array($item['output'])) {
+                                        foreach ($item['output'] as $output) {
+                                            if (isset($output['text'])) {
+                                                $delta = $output['text'];
+                                                break;
+                                            }
                                         }
                                     }
                                 }
                             }
-                        }
-                        // 3b. Response output_text.done - ONLY use as fallback if no deltas received
-                        elseif ($eventType === 'response.output_text.done' && isset($event['text'])) {
-                            $delta = $event['text'];
-                        }
-                        // 4. Content part done - ONLY use as fallback if no deltas received
-                        elseif ($eventType === 'response.content_part.done' && isset($event['part']['text'])) {
-                            $delta = $event['part']['text'];
-                        }
-                        // 5. Fallback: direct delta string
-                        elseif (isset($event['delta']) && is_string($event['delta'])) {
-                            $delta = $event['delta'];
-                            $state->receivedDeltas = true;
+                            // Response output_text.done
+                            elseif ($eventType === 'response.output_text.done' && isset($event['text'])) {
+                                $delta = $event['text'];
+                            }
+                            // Content part done
+                            elseif ($eventType === 'response.content_part.done' && isset($event['part']['text'])) {
+                                $delta = $event['part']['text'];
+                            }
                         }
 
                         // Log incomplete response details
@@ -609,10 +605,9 @@ class ChatController extends Controller
                                     'details' => $event['response']['incomplete_details'],
                                 ]);
                             }
-                            // ONLY try to extract text if we didn't receive any deltas (fallback)
+                            // Extract text if we didn't receive any deltas (fallback)
                             if (!$state->receivedDeltas && $delta === null && isset($event['response']['output']) && is_array($event['response']['output'])) {
                                 foreach ($event['response']['output'] as $output) {
-                                    // Check for message type output
                                     if (isset($output['type']) && $output['type'] === 'message' && isset($output['content'])) {
                                         foreach ($output['content'] as $content) {
                                             if (isset($content['text'])) {
@@ -621,7 +616,6 @@ class ChatController extends Controller
                                             }
                                         }
                                     }
-                                    // Check for direct text in output
                                     if (isset($output['text'])) {
                                         $delta = $output['text'];
                                         break;
@@ -657,17 +651,30 @@ class ChatController extends Controller
         $curlErrno = curl_errno($ch);
         curl_close($ch);
 
-        // Log result summary (only warnings and errors for issues)
+        // Log result summary
+        $uniqueEventTypes = array_unique($state->eventTypes);
         if ($httpCode !== 200 || !$success || $state->errorMessage || empty($state->fullContent)) {
-            $uniqueEventTypes = array_unique($state->eventTypes);
-            Log::warning('OpenAI Responses API issue', [
+            Log::warning('OpenAI Responses API streaming issue', [
+                'user_id' => $user->id,
+                'conversation_id' => $conversation->id,
                 'http_code' => $httpCode,
                 'curl_error' => $curlError ?: null,
                 'api_error' => $state->errorMessage,
                 'content_length' => strlen($state->fullContent),
                 'event_types' => $uniqueEventTypes,
+                'received_deltas' => $state->receivedDeltas,
                 'model' => $assistant->model,
                 'tokens' => $state->tokensInput + $state->tokensOutput,
+            ]);
+        } else {
+            Log::info('OpenAI Responses API streaming completed', [
+                'user_id' => $user->id,
+                'conversation_id' => $conversation->id,
+                'content_length' => strlen($state->fullContent),
+                'event_types_count' => count($uniqueEventTypes),
+                'received_deltas' => $state->receivedDeltas,
+                'tokens_input' => $state->tokensInput,
+                'tokens_output' => $state->tokensOutput,
             ]);
         }
 
