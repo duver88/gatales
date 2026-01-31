@@ -253,7 +253,7 @@ class WebhookController extends Controller
             $validated = $request->validate([
                 'email' => 'required_without:subscription_id|email',
                 'subscription_id' => 'required_without:email|string',
-            ]);
+            ]); 
 
             DB::beginTransaction();
 
