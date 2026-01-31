@@ -13,6 +13,9 @@ class Conversation extends Model
 {
     use HasFactory, SoftDeletes;
 
+    // Eager load assistant by default to prevent N+1 queries
+    protected $with = ['assistant'];
+
     protected $fillable = [
         'user_id',
         'admin_id',

@@ -7,6 +7,7 @@ const api = axios.create({
     'Accept': 'application/json',
   },
   withCredentials: true, // Required for Sanctum cookies
+  timeout: 30000, // 30 second timeout for regular requests
 })
 
 // Request interceptor to add auth token

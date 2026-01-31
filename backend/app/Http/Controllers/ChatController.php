@@ -263,8 +263,8 @@ class ChatController extends Controller
                     return;
                 }
 
-                // Check if first message
-                $isFirstMessage = $conversation->messages()->count() === 0;
+                // Check if first message (use doesntExist for better performance)
+                $isFirstMessage = $conversation->messages()->doesntExist();
 
                 // Save user message first
                 $userMessage = Message::create([
@@ -345,20 +345,23 @@ class ChatController extends Controller
                 ]);
                 $this->tokenService->deductTokens($user, $tokensInput, $tokensOutput);
 
-                // Refresh
-                $user->refresh();
+                // Calculate new balance locally (avoid unnecessary refresh query)
+                $newBalance = $user->tokens_balance - $totalTokensToDeduct;
+                if ($newBalance < 0) $newBalance = 0;
+
+                // Only refresh conversation for title update
                 $conversation->refresh();
 
                 Log::info('Tokens deducted', [
                     'user_id' => $userId,
-                    'balance_after' => $user->tokens_balance,
+                    'balance_after' => $newBalance,
                 ]);
 
                 // Send done event
                 $this->sendSSE('done', [
                     'message_id' => $assistantMessage->id,
                     'tokens_used' => $tokensInput + $tokensOutput,
-                    'tokens_balance' => $user->tokens_balance,
+                    'tokens_balance' => $newBalance,
                     'conversation' => [
                         'id' => $conversation->id,
                         'title' => $conversation->title,

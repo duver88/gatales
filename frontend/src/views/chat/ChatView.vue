@@ -1,5 +1,5 @@
 <script setup>
-import { ref, onMounted, nextTick, computed, watch } from 'vue'
+import { ref, onMounted, onBeforeUnmount, nextTick, computed, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '../../stores/auth'
 import { useChatStore } from '../../stores/chat'
@@ -43,12 +43,24 @@ const isUploadingAvatar = ref(false)
 // Responsive - auto show sidebar on desktop
 const isDesktop = ref(window.innerWidth >= 768)
 
+// Debounced resize handler
+let resizeTimeout = null
 function handleResize() {
-  isDesktop.value = window.innerWidth >= 768
-  if (isDesktop.value) {
-    showSidebar.value = true
-  }
+  clearTimeout(resizeTimeout)
+  resizeTimeout = setTimeout(() => {
+    isDesktop.value = window.innerWidth >= 768
+    if (isDesktop.value) {
+      showSidebar.value = true
+    }
+  }, 150)
 }
+
+// Cleanup on unmount
+onBeforeUnmount(() => {
+  window.removeEventListener('resize', handleResize)
+  clearTimeout(resizeTimeout)
+  clearTimeout(scrollTimeout)
+})
 
 const formattedTokens = computed(() => {
   const balance = authStore.tokensBalance
@@ -74,15 +86,15 @@ const conversationTitle = computed(() => {
 
 onMounted(async () => {
   // Set up resize listener
-  window.addEventListener('resize', handleResize)
+  window.addEventListener('resize', handleResize, { passive: true })
   handleResize()
 
   try {
-    // Fetch conversations first
-    await conversationsStore.fetchConversations()
-
-    // Then fetch available assistants
-    await chatStore.fetchAvailableAssistants()
+    // Fetch conversations and assistants in PARALLEL for faster load
+    const [conversationsResult] = await Promise.all([
+      conversationsStore.fetchConversations(),
+      chatStore.fetchAvailableAssistants()
+    ])
 
     // If there's a current conversation selected, load its messages
     if (conversationsStore.currentConversationId) {
@@ -193,24 +205,43 @@ async function handleSendMessage(content) {
   }
 }
 
-// Auto-scroll when messages change (new message added)
-watch(() => chatStore.messages.length, () => {
-  nextTick(() => scrollToBottom())
-})
-
-// Auto-scroll during streaming
-watch(() => chatStore.streamingContent, () => {
-  if (chatStore.isStreaming) {
+// Debounced scroll to prevent jank during streaming
+let scrollTimeout = null
+function debouncedScrollToBottom() {
+  clearTimeout(scrollTimeout)
+  scrollTimeout = setTimeout(() => {
     scrollToBottom()
-  }
-})
+  }, 50)
+}
 
-// Auto-scroll when thinking starts
-watch(() => chatStore.isThinking, (isThinking) => {
-  if (isThinking) {
-    nextTick(() => scrollToBottom())
+// Consolidated watcher for all scroll triggers
+watch(
+  () => [chatStore.messages.length, chatStore.isThinking, chatStore.isStreaming],
+  ([messagesLen, isThinking, isStreaming], [oldMessagesLen]) => {
+    // Always scroll when new message is added
+    if (messagesLen !== oldMessagesLen) {
+      nextTick(() => scrollToBottom())
+    }
+    // Scroll when thinking starts
+    else if (isThinking) {
+      nextTick(() => scrollToBottom())
+    }
+    // Debounce scroll during streaming (called frequently)
+    else if (isStreaming) {
+      debouncedScrollToBottom()
+    }
   }
-})
+)
+
+// Watch streaming content separately with heavy debounce
+watch(
+  () => chatStore.streamingContent,
+  () => {
+    if (chatStore.isStreaming) {
+      debouncedScrollToBottom()
+    }
+  }
+)
 
 function handleStopStreaming() {
   chatStore.stopStreaming()

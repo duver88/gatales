@@ -20,24 +20,39 @@ const isUser = computed(() => props.message.role === 'user')
 const isStreaming = computed(() => props.message.isStreaming === true)
 const isThinking = computed(() => props.message.isThinking === true)
 
-// Simple markdown-like formatting (basic implementation)
-const formattedContent = computed(() => {
-  let content = props.message.content || ''
+// Cache for formatted content - avoids re-processing during streaming
+const formatCache = new Map()
 
-  // Convert **bold** to <strong>
-  content = content.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+// Optimized markdown formatting with caching
+function formatMarkdown(content) {
+  if (!content) return ''
 
-  // Convert *italic* to <em>
-  content = content.replace(/\*(.+?)\*/g, '<em>$1</em>')
+  // Use full content as cache key for non-streaming
+  if (formatCache.has(content)) {
+    return formatCache.get(content)
+  }
 
-  // Convert `code` to <code>
-  content = content.replace(/`(.+?)`/g, '<code>$1</code>')
+  // Format content
+  let result = content
+    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+    .replace(/\*(.+?)\*/g, '<em>$1</em>')
+    .replace(/`(.+?)`/g, '<code>$1</code>')
+    .replace(/\n/g, '<br>')
 
-  // Convert newlines to <br>
-  content = content.replace(/\n/g, '<br>')
+  // Only cache non-streaming content (streaming content changes frequently)
+  if (content.length < 5000) {
+    formatCache.set(content, result)
+    // Limit cache size to prevent memory issues
+    if (formatCache.size > 30) {
+      const firstKey = formatCache.keys().next().value
+      formatCache.delete(firstKey)
+    }
+  }
 
-  return content
-})
+  return result
+}
+
+const formattedContent = computed(() => formatMarkdown(props.message.content))
 </script>
 
 <template>
