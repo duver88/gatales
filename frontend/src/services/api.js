@@ -116,10 +116,10 @@ export const chatApi = {
     let receivedDone = false
     let wasCancelled = false
 
-    // AbortController with 5 minute timeout for GPT-5 with knowledge base
+    // AbortController with 15 minute timeout for GPT-5 with knowledge base
     const controller = new AbortController()
     activeStreamController = controller // Store for cancellation
-    const timeoutId = setTimeout(() => controller.abort(), 300000) // 5 minutes
+    const timeoutId = setTimeout(() => controller.abort(), 900000) // 15 minutes
 
     try {
       const response = await fetch(`${baseURL}/conversations/${id}/messages/stream`, {
@@ -281,9 +281,9 @@ export const adminApi = {
     const baseURL = import.meta.env.VITE_API_URL
     let receivedDone = false
 
-    // AbortController with 5 minute timeout for GPT-5 with knowledge base
+    // AbortController with 15 minute timeout for GPT-5 with knowledge base
     const controller = new AbortController()
-    const timeoutId = setTimeout(() => controller.abort(), 300000) // 5 minutes
+    const timeoutId = setTimeout(() => controller.abort(), 900000) // 15 minutes
 
     try {
       const response = await fetch(`${baseURL}/admin/test-conversations/${id}/messages/stream`, {

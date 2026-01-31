@@ -469,7 +469,7 @@ class ChatController extends Controller
                 'Accept: text/event-stream',
             ],
             CURLOPT_RETURNTRANSFER => false,
-            CURLOPT_TIMEOUT => 300,
+            CURLOPT_TIMEOUT => 900, // 15 minutes for GPT-5 with file_search
             CURLOPT_CONNECTTIMEOUT => 30,
             CURLOPT_WRITEFUNCTION => function($ch, $data) use ($state) {
                 $state->rawResponse .= $data;
