@@ -8,6 +8,11 @@ export const useAuthStore = defineStore('auth', () => {
   const isLoading = ref(false)
   const error = ref(null)
 
+  // Request deduplication - prevent multiple simultaneous fetchUser calls
+  let fetchUserPromise = null
+  let lastFetchTime = 0
+  const CACHE_DURATION = 30000 // 30 seconds cache
+
   const isAuthenticated = computed(() => !!token.value && !!user.value)
   const isActive = computed(() => user.value?.status === 'active')
   const tokensBalance = computed(() => user.value?.tokens_balance ?? 0)
@@ -84,27 +89,44 @@ export const useAuthStore = defineStore('auth', () => {
     }
   }
 
-  async function fetchUser() {
+  async function fetchUser(force = false) {
     if (!token.value) return null
 
-    isLoading.value = true
-    try {
-      const response = await authApi.me()
-      user.value = response.data.user
-      localStorage.setItem('user', JSON.stringify(response.data.user))
-      return response.data.user
-    } catch (e) {
-      // If token is invalid, clear it
-      if (e.response?.status === 401) {
-        token.value = null
-        user.value = null
-        localStorage.removeItem('auth_token')
-        localStorage.removeItem('user')
-      }
-      throw e
-    } finally {
-      isLoading.value = false
+    // Return cached user if available and not forcing refresh
+    const now = Date.now()
+    if (!force && user.value && (now - lastFetchTime) < CACHE_DURATION) {
+      return user.value
     }
+
+    // Deduplicate concurrent requests - return existing promise if one is in progress
+    if (fetchUserPromise) {
+      return fetchUserPromise
+    }
+
+    isLoading.value = true
+    fetchUserPromise = (async () => {
+      try {
+        const response = await authApi.me()
+        user.value = response.data.user
+        localStorage.setItem('user', JSON.stringify(response.data.user))
+        lastFetchTime = Date.now()
+        return response.data.user
+      } catch (e) {
+        // If token is invalid, clear it
+        if (e.response?.status === 401) {
+          token.value = null
+          user.value = null
+          localStorage.removeItem('auth_token')
+          localStorage.removeItem('user')
+        }
+        throw e
+      } finally {
+        isLoading.value = false
+        fetchUserPromise = null
+      }
+    })()
+
+    return fetchUserPromise
   }
 
   function updateTokensBalance(newBalance) {

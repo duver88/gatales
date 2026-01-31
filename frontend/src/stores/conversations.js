@@ -12,25 +12,48 @@ export const useConversationsStore = defineStore('conversations', () => {
   const searchResults = ref([])
   const isSearching = ref(false)
 
+  // Request deduplication
+  let fetchPromise = null
+  let lastFetchTime = 0
+  const CACHE_DURATION = 60000 // 1 minute cache
+
   const currentConversation = computed(() =>
     conversations.value.find(c => c.id === currentConversationId.value)
   )
 
   const hasConversations = computed(() => conversations.value.length > 0)
 
-  async function fetchConversations() {
-    isLoading.value = true
-    try {
-      const response = await chatApi.getConversations()
-      conversations.value = response.data.conversations || []
-      groupedConversations.value = response.data.grouped || {}
-      return response.data
-    } catch (e) {
-      console.error('Error fetching conversations:', e)
-      throw e
-    } finally {
-      isLoading.value = false
+  async function fetchConversations(force = false) {
+    const now = Date.now()
+
+    // Return cached data if available and not forcing
+    if (!force && conversations.value.length > 0 && (now - lastFetchTime) < CACHE_DURATION) {
+      return { conversations: conversations.value, grouped: groupedConversations.value }
     }
+
+    // Deduplicate concurrent requests
+    if (fetchPromise) {
+      return fetchPromise
+    }
+
+    isLoading.value = true
+    fetchPromise = (async () => {
+      try {
+        const response = await chatApi.getConversations()
+        conversations.value = response.data.conversations || []
+        groupedConversations.value = response.data.grouped || {}
+        lastFetchTime = Date.now()
+        return response.data
+      } catch (e) {
+        console.error('Error fetching conversations:', e)
+        throw e
+      } finally {
+        isLoading.value = false
+        fetchPromise = null
+      }
+    })()
+
+    return fetchPromise
   }
 
   async function createConversation() {
@@ -150,6 +173,7 @@ export const useConversationsStore = defineStore('conversations', () => {
     currentConversationId.value = null
     searchQuery.value = ''
     searchResults.value = []
+    lastFetchTime = 0 // Clear cache on reset
   }
 
   return {

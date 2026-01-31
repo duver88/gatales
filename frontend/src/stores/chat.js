@@ -18,6 +18,11 @@ export const useChatStore = defineStore('chat', () => {
   const availableAssistants = ref([])
   const isChangingAssistant = ref(false)
 
+  // Caching for assistants (they don't change often)
+  let assistantsFetchPromise = null
+  let assistantsLastFetch = 0
+  const ASSISTANTS_CACHE_DURATION = 300000 // 5 minutes cache
+
   // Conversation state
   const currentConversationId = ref(null)
   const currentConversation = ref(null)
@@ -66,15 +71,34 @@ export const useChatStore = defineStore('chat', () => {
     }
   }
 
-  async function fetchAvailableAssistants() {
-    try {
-      const response = await chatApi.getAvailableAssistants()
-      availableAssistants.value = response.data.assistants
-      return response.data
-    } catch (e) {
-      console.error('Error fetching assistants:', e)
-      throw e
+  async function fetchAvailableAssistants(force = false) {
+    const now = Date.now()
+
+    // Return cached data if available
+    if (!force && availableAssistants.value.length > 0 && (now - assistantsLastFetch) < ASSISTANTS_CACHE_DURATION) {
+      return { assistants: availableAssistants.value }
     }
+
+    // Deduplicate concurrent requests
+    if (assistantsFetchPromise) {
+      return assistantsFetchPromise
+    }
+
+    assistantsFetchPromise = (async () => {
+      try {
+        const response = await chatApi.getAvailableAssistants()
+        availableAssistants.value = response.data.assistants
+        assistantsLastFetch = Date.now()
+        return response.data
+      } catch (e) {
+        console.error('Error fetching assistants:', e)
+        throw e
+      } finally {
+        assistantsFetchPromise = null
+      }
+    })()
+
+    return assistantsFetchPromise
   }
 
   async function changeAssistant(assistantId) {
