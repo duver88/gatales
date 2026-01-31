@@ -8,6 +8,7 @@ use App\Models\Conversation;
 use App\Models\Message;
 use App\Models\User;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use OpenAI\Laravel\Facades\OpenAI;
@@ -15,7 +16,7 @@ use OpenAI\Laravel\Facades\OpenAI;
 class OpenAIAssistantService
 {
     /**
-     * Supported file types for OpenAI Assistants API file_search
+     * Supported file types for OpenAI file_search
      */
     private const SUPPORTED_TYPES = [
         'application/pdf',
@@ -35,52 +36,346 @@ class OpenAIAssistantService
     private const MAX_FILE_SIZE = 512 * 1024 * 1024; // 512 MB
 
     /**
-     * Create or update OpenAI Assistant for the local assistant
+     * Send a message using Responses API (supports GPT-5 with file_search)
+     *
+     * @return array{content: string, tokens_input: int, tokens_output: int, message_id: string}
      */
-    public function syncAssistant(Assistant $assistant): void
+    public function sendMessage(User $user, string $message, Assistant $assistant, ?Conversation $conversation = null): array
     {
+        // Build the input messages array (conversation history + new message)
+        $input = $this->buildInputMessages($user, $message, $assistant, $conversation);
+
+        // Build tools array
         $tools = [];
-        $toolResources = [];
-
-        // If knowledge base is enabled, add file_search tool
-        if ($assistant->use_knowledge_base) {
-            $tools[] = ['type' => 'file_search'];
-
-            // If we have a vector store, attach it
-            if ($assistant->openai_vector_store_id) {
-                $toolResources['file_search'] = [
-                    'vector_store_ids' => [$assistant->openai_vector_store_id],
-                ];
-            }
-        }
-
-        $assistantData = [
-            'name' => $assistant->name,
-            'description' => $assistant->description ?? '',
-            'instructions' => $assistant->system_prompt,
-            'model' => $assistant->model,
-            'tools' => $tools,
-        ];
-
-        if (!empty($toolResources)) {
-            $assistantData['tool_resources'] = $toolResources;
+        if ($assistant->use_knowledge_base && $assistant->openai_vector_store_id) {
+            $tools[] = [
+                'type' => 'file_search',
+                'vector_store_ids' => [$assistant->openai_vector_store_id],
+            ];
         }
 
         try {
-            if ($assistant->openai_assistant_id) {
-                // Update existing assistant
-                OpenAI::assistants()->modify($assistant->openai_assistant_id, $assistantData);
-            } else {
-                // Create new assistant
-                $response = OpenAI::assistants()->create($assistantData);
-                $assistant->update(['openai_assistant_id' => $response->id]);
-            }
+            // Call the Responses API using HTTP client (openai-php/client may not have responses() yet)
+            $response = $this->callResponsesApi([
+                'model' => $assistant->model,
+                'instructions' => $assistant->system_prompt,
+                'input' => $input,
+                'tools' => $tools,
+                'max_output_tokens' => (int) $assistant->max_tokens,
+                // GPT-5 and o1 models don't support custom temperature
+                'temperature' => $this->supportsTemperature($assistant->model) ? (float) $assistant->temperature : null,
+            ]);
+
+            // Extract response content
+            $content = $this->extractResponseContent($response);
+            $tokensInput = $response['usage']['input_tokens'] ?? 0;
+            $tokensOutput = $response['usage']['output_tokens'] ?? 0;
+
+            return [
+                'content' => $content,
+                'tokens_input' => $tokensInput,
+                'tokens_output' => $tokensOutput,
+                'message_id' => $response['id'] ?? 'resp_' . time(),
+            ];
         } catch (\Exception $e) {
-            Log::error('Error syncing OpenAI Assistant: ' . $e->getMessage(), [
+            Log::error('Error in Responses API: ' . $e->getMessage(), [
+                'user_id' => $user->id,
+                'assistant_id' => $assistant->id,
+                'conversation_id' => $conversation?->id,
+                'model' => $assistant->model,
+            ]);
+            throw $e;
+        }
+    }
+
+    /**
+     * Send a message with streaming using Responses API
+     *
+     * @return \Generator
+     */
+    public function sendMessageStreamed(User $user, string $message, Assistant $assistant, ?Conversation $conversation = null): \Generator
+    {
+        $input = $this->buildInputMessages($user, $message, $assistant, $conversation);
+
+        $tools = [];
+        if ($assistant->use_knowledge_base && $assistant->openai_vector_store_id) {
+            $tools[] = [
+                'type' => 'file_search',
+                'vector_store_ids' => [$assistant->openai_vector_store_id],
+            ];
+        }
+
+        try {
+            $fullContent = '';
+            $tokensInput = 0;
+            $tokensOutput = 0;
+            $messageId = null;
+
+            // Stream from Responses API
+            foreach ($this->streamResponsesApi([
+                'model' => $assistant->model,
+                'instructions' => $assistant->system_prompt,
+                'input' => $input,
+                'tools' => $tools,
+                'max_output_tokens' => (int) $assistant->max_tokens,
+                'temperature' => $this->supportsTemperature($assistant->model) ? (float) $assistant->temperature : null,
+                'stream' => true,
+            ]) as $chunk) {
+                if ($chunk['type'] === 'content') {
+                    $fullContent .= $chunk['content'];
+                    yield $chunk;
+                } elseif ($chunk['type'] === 'done') {
+                    $tokensInput = $chunk['tokens_input'] ?? 0;
+                    $tokensOutput = $chunk['tokens_output'] ?? 0;
+                    $messageId = $chunk['message_id'] ?? null;
+                }
+            }
+
+            yield [
+                'type' => 'done',
+                'full_content' => $fullContent,
+                'tokens_input' => $tokensInput,
+                'tokens_output' => $tokensOutput,
+                'message_id' => $messageId ?? 'resp_' . time(),
+            ];
+        } catch (\Exception $e) {
+            Log::error('Error in Responses API streaming: ' . $e->getMessage(), [
+                'user_id' => $user->id,
                 'assistant_id' => $assistant->id,
             ]);
             throw $e;
         }
+    }
+
+    /**
+     * Build input messages array for Responses API
+     */
+    private function buildInputMessages(User $user, string $message, Assistant $assistant, ?Conversation $conversation = null): array
+    {
+        $input = [];
+        $contextLimit = (int) ($assistant->context_messages ?? 10);
+
+        // Get previous messages for context
+        if ($conversation) {
+            $previousMessages = $conversation->messages()
+                ->orderBy('created_at', 'desc')
+                ->limit($contextLimit)
+                ->get()
+                ->reverse()
+                ->values();
+        } else {
+            $previousMessages = Message::where('user_id', $user->id)
+                ->orderBy('created_at', 'desc')
+                ->limit($contextLimit)
+                ->get()
+                ->reverse()
+                ->values();
+        }
+
+        // Add previous messages
+        foreach ($previousMessages as $msg) {
+            $input[] = [
+                'role' => $msg->role,
+                'content' => $msg->content,
+            ];
+        }
+
+        // Add the new user message
+        $input[] = [
+            'role' => 'user',
+            'content' => $message,
+        ];
+
+        return $input;
+    }
+
+    /**
+     * Call the OpenAI Responses API
+     */
+    private function callResponsesApi(array $params): array
+    {
+        $apiKey = config('openai.api_key');
+
+        // Remove null values
+        $params = array_filter($params, fn($v) => $v !== null);
+
+        $response = Http::withHeaders([
+            'Authorization' => 'Bearer ' . $apiKey,
+            'Content-Type' => 'application/json',
+        ])->timeout(120)->post('https://api.openai.com/v1/responses', $params);
+
+        if (!$response->successful()) {
+            $error = $response->json();
+            throw new \RuntimeException(
+                $error['error']['message'] ?? 'Error calling Responses API: ' . $response->status()
+            );
+        }
+
+        return $response->json();
+    }
+
+    /**
+     * Stream from the OpenAI Responses API
+     */
+    private function streamResponsesApi(array $params): \Generator
+    {
+        $apiKey = config('openai.api_key');
+
+        // Remove null values
+        $params = array_filter($params, fn($v) => $v !== null);
+
+        $ch = curl_init('https://api.openai.com/v1/responses');
+        curl_setopt_array($ch, [
+            CURLOPT_POST => true,
+            CURLOPT_POSTFIELDS => json_encode($params),
+            CURLOPT_HTTPHEADER => [
+                'Authorization: Bearer ' . $apiKey,
+                'Content-Type: application/json',
+                'Accept: text/event-stream',
+            ],
+            CURLOPT_RETURNTRANSFER => false,
+            CURLOPT_WRITEFUNCTION => function($ch, $data) use (&$buffer) {
+                $buffer .= $data;
+                return strlen($data);
+            },
+            CURLOPT_TIMEOUT => 120,
+        ]);
+
+        $buffer = '';
+        $tokensInput = 0;
+        $tokensOutput = 0;
+        $messageId = null;
+
+        // Use a different approach - collect all and process
+        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+        $result = curl_exec($ch);
+
+        if (curl_errno($ch)) {
+            curl_close($ch);
+            throw new \RuntimeException('Curl error: ' . curl_error($ch));
+        }
+
+        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        curl_close($ch);
+
+        if ($httpCode !== 200) {
+            $error = json_decode($result, true);
+            throw new \RuntimeException(
+                $error['error']['message'] ?? 'Error calling Responses API: ' . $httpCode
+            );
+        }
+
+        // Parse SSE events
+        $lines = explode("\n", $result);
+        foreach ($lines as $line) {
+            $line = trim($line);
+            if (empty($line) || $line === 'data: [DONE]') {
+                continue;
+            }
+
+            if (str_starts_with($line, 'data: ')) {
+                $json = substr($line, 6);
+                $event = json_decode($json, true);
+
+                if (!$event) continue;
+
+                // Handle different event types
+                if (isset($event['type'])) {
+                    switch ($event['type']) {
+                        case 'response.output_text.delta':
+                            if (isset($event['delta'])) {
+                                yield [
+                                    'type' => 'content',
+                                    'content' => $event['delta'],
+                                ];
+                            }
+                            break;
+
+                        case 'response.completed':
+                            if (isset($event['response'])) {
+                                $messageId = $event['response']['id'] ?? null;
+                                $tokensInput = $event['response']['usage']['input_tokens'] ?? 0;
+                                $tokensOutput = $event['response']['usage']['output_tokens'] ?? 0;
+                            }
+                            break;
+                    }
+                }
+
+                // Also check for content delta in different format
+                if (isset($event['delta']['content'])) {
+                    yield [
+                        'type' => 'content',
+                        'content' => $event['delta']['content'],
+                    ];
+                }
+
+                // Check for usage info
+                if (isset($event['usage'])) {
+                    $tokensInput = $event['usage']['input_tokens'] ?? $tokensInput;
+                    $tokensOutput = $event['usage']['output_tokens'] ?? $tokensOutput;
+                }
+
+                if (isset($event['id']) && !$messageId) {
+                    $messageId = $event['id'];
+                }
+            }
+        }
+
+        yield [
+            'type' => 'done',
+            'tokens_input' => $tokensInput,
+            'tokens_output' => $tokensOutput,
+            'message_id' => $messageId,
+        ];
+    }
+
+    /**
+     * Extract text content from Responses API response
+     */
+    private function extractResponseContent(array $response): string
+    {
+        $content = '';
+
+        // The output array contains the response items
+        if (isset($response['output'])) {
+            foreach ($response['output'] as $item) {
+                if ($item['type'] === 'message' && isset($item['content'])) {
+                    foreach ($item['content'] as $contentBlock) {
+                        if ($contentBlock['type'] === 'output_text') {
+                            $content .= $contentBlock['text'] ?? '';
+                        } elseif ($contentBlock['type'] === 'text') {
+                            $content .= $contentBlock['text'] ?? '';
+                        }
+                    }
+                }
+            }
+        }
+
+        // Fallback: check for direct content
+        if (empty($content) && isset($response['content'])) {
+            foreach ($response['content'] as $contentBlock) {
+                if (isset($contentBlock['text'])) {
+                    $content .= $contentBlock['text'];
+                }
+            }
+        }
+
+        return $content;
+    }
+
+    /**
+     * Check if model supports temperature parameter
+     */
+    private function supportsTemperature(string $model): bool
+    {
+        // GPT-5 and o1 models don't support custom temperature
+        $noTempModels = ['gpt-5', 'o1', 'o1-mini', 'o1-preview'];
+        foreach ($noTempModels as $noTempModel) {
+            if (str_starts_with($model, $noTempModel)) {
+                return false;
+            }
+        }
+        return true;
     }
 
     /**
@@ -94,11 +389,6 @@ class OpenAIAssistantService
             ]);
 
             $assistant->update(['openai_vector_store_id' => $response->id]);
-
-            // If assistant already exists, update it with the vector store
-            if ($assistant->openai_assistant_id) {
-                $this->syncAssistant($assistant);
-            }
 
             return $response->id;
         } catch (\Exception $e) {
@@ -131,19 +421,13 @@ class OpenAIAssistantService
             $assistant->refresh();
         }
 
-        // Ensure we have an OpenAI assistant
-        if (!$assistant->openai_assistant_id) {
-            $this->syncAssistant($assistant);
-            $assistant->refresh();
-        }
-
         // Store file locally first
         $storagePath = $file->store('assistant_files/' . $assistant->id, 'local');
 
         // Create local record
         $assistantFile = AssistantFile::create([
             'assistant_id' => $assistant->id,
-            'openai_file_id' => '', // Will be updated after upload
+            'openai_file_id' => '',
             'original_name' => $file->getClientOriginalName(),
             'mime_type' => $file->getMimeType(),
             'file_size' => $file->getSize(),
@@ -168,7 +452,7 @@ class OpenAIAssistantService
                 ['file_id' => $openAIFile->id]
             );
 
-            // Mark as ready (vector store processing happens async)
+            // Mark as ready
             $assistantFile->update(['status' => 'ready']);
 
             return $assistantFile;
@@ -203,7 +487,6 @@ class OpenAIAssistantService
                         $file->openai_file_id
                     );
                 } catch (\Exception $e) {
-                    // Vector store file might already be deleted
                     Log::warning('Could not delete file from vector store: ' . $e->getMessage());
                 }
             }
@@ -233,7 +516,7 @@ class OpenAIAssistantService
     }
 
     /**
-     * Delete the OpenAI assistant and vector store
+     * Delete the vector store (no more OpenAI assistant to delete with Responses API)
      */
     public function deleteAssistant(Assistant $assistant): void
     {
@@ -252,22 +535,13 @@ class OpenAIAssistantService
                 }
             }
 
-            // Delete assistant
-            if ($assistant->openai_assistant_id) {
-                try {
-                    OpenAI::assistants()->delete($assistant->openai_assistant_id);
-                } catch (\Exception $e) {
-                    Log::warning('Could not delete OpenAI assistant: ' . $e->getMessage());
-                }
-            }
-
-            // Clear OpenAI IDs
+            // Clear OpenAI IDs (no more openai_assistant_id needed with Responses API)
             $assistant->update([
                 'openai_assistant_id' => null,
                 'openai_vector_store_id' => null,
             ]);
         } catch (\Exception $e) {
-            Log::error('Error deleting OpenAI assistant: ' . $e->getMessage(), [
+            Log::error('Error deleting assistant resources: ' . $e->getMessage(), [
                 'assistant_id' => $assistant->id,
             ]);
             throw $e;
@@ -275,144 +549,38 @@ class OpenAIAssistantService
     }
 
     /**
-     * Send a message using Assistants API (for assistants with knowledge base)
+     * Sync assistant - with Responses API, we just need the vector store
+     * No need to create an OpenAI Assistant object anymore
      */
-    public function sendMessage(User $user, string $message, Assistant $assistant, ?Conversation $conversation = null): array
+    public function syncAssistant(Assistant $assistant): void
     {
-        // Get or create thread - from conversation if provided, else from user (legacy)
-        if ($conversation) {
-            $threadId = $conversation->openai_thread_id;
-            if (!$threadId) {
-                $thread = OpenAI::threads()->create([]);
-                $threadId = $thread->id;
-                $conversation->update(['openai_thread_id' => $threadId]);
-            }
-        } else {
-            // Legacy: use user's thread
-            $threadId = $user->openai_thread_id;
-            if (!$threadId) {
-                $thread = OpenAI::threads()->create([]);
-                $threadId = $thread->id;
-                $user->update(['openai_thread_id' => $threadId]);
-            }
-        }
-
-        try {
-            // Add user message to thread
-            OpenAI::threads()->messages()->create($threadId, [
-                'role' => 'user',
-                'content' => $message,
-            ]);
-
-            // Run the assistant
-            $runParams = [
-                'assistant_id' => $assistant->openai_assistant_id,
-                'max_completion_tokens' => (int) $assistant->max_tokens,
-            ];
-
-            // o1 and GPT-5 models don't support custom temperature (only default=1)
-            if (!str_starts_with($assistant->model, 'o1') && !str_starts_with($assistant->model, 'gpt-5')) {
-                $runParams['temperature'] = (float) $assistant->temperature;
-            }
-
-            $run = OpenAI::threads()->runs()->create($threadId, $runParams);
-
-            // Wait for completion (with timeout)
-            $maxAttempts = 60; // 60 seconds timeout
-            $attempts = 0;
-
-            while (in_array($run->status, ['queued', 'in_progress', 'requires_action'])) {
-                if ($attempts >= $maxAttempts) {
-                    throw new \RuntimeException('La respuesta del asistente tardó demasiado.');
-                }
-
-                sleep(1);
-                $run = OpenAI::threads()->runs()->retrieve($threadId, $run->id);
-                $attempts++;
-            }
-
-            if ($run->status === 'failed') {
-                throw new \RuntimeException('El asistente no pudo procesar la solicitud: ' . ($run->lastError?->message ?? 'Error desconocido'));
-            }
-
-            if ($run->status !== 'completed') {
-                throw new \RuntimeException('Estado inesperado del asistente: ' . $run->status);
-            }
-
-            // Get the assistant's response
-            $messages = OpenAI::threads()->messages()->list($threadId, [
-                'limit' => 1,
-                'order' => 'desc',
-            ]);
-
-            $content = '';
-            if (!empty($messages->data)) {
-                $lastMessage = $messages->data[0];
-                foreach ($lastMessage->content as $contentBlock) {
-                    if ($contentBlock->type === 'text') {
-                        $content .= $contentBlock->text->value;
-                    }
-                }
-            }
-
-            // Get token usage from run
-            $tokensInput = $run->usage?->promptTokens ?? 0;
-            $tokensOutput = $run->usage?->completionTokens ?? 0;
-
-            return [
-                'content' => $content,
-                'tokens_input' => $tokensInput,
-                'tokens_output' => $tokensOutput,
-                'message_id' => $run->id,
-            ];
-        } catch (\Exception $e) {
-            Log::error('Error in Assistants API: ' . $e->getMessage(), [
-                'user_id' => $user->id,
-                'assistant_id' => $assistant->id,
-                'conversation_id' => $conversation?->id,
-            ]);
-
-            // If thread is corrupted, create a new one
-            if (str_contains($e->getMessage(), 'thread') || str_contains($e->getMessage(), 'Thread')) {
-                if ($conversation) {
-                    $conversation->update(['openai_thread_id' => null]);
-                } else {
-                    $user->update(['openai_thread_id' => null]);
-                }
-            }
-
-            throw $e;
+        // With Responses API, we don't need to create an OpenAI Assistant
+        // We just need to ensure the vector store exists if knowledge base is enabled
+        if ($assistant->use_knowledge_base && !$assistant->openai_vector_store_id) {
+            $this->createVectorStore($assistant);
         }
     }
 
     /**
-     * Clear conversation thread
+     * Clear conversation thread - no longer needed with Responses API (stateless)
      */
     public function clearConversationThread(Conversation $conversation): void
     {
+        // With Responses API, there are no threads to clear
+        // Just clear the thread ID if it exists (legacy cleanup)
         if ($conversation->openai_thread_id) {
-            try {
-                OpenAI::threads()->delete($conversation->openai_thread_id);
-            } catch (\Exception $e) {
-                Log::warning('Could not delete conversation thread: ' . $e->getMessage());
-            }
-
             $conversation->update(['openai_thread_id' => null]);
         }
     }
 
     /**
-     * Clear user's thread (legacy - for when they switch assistants or clear history)
+     * Clear user's thread - no longer needed with Responses API
      */
     public function clearThread(User $user): void
     {
+        // With Responses API, there are no threads
+        // Just clear the thread ID if it exists (legacy cleanup)
         if ($user->openai_thread_id) {
-            try {
-                OpenAI::threads()->delete($user->openai_thread_id);
-            } catch (\Exception $e) {
-                Log::warning('Could not delete thread: ' . $e->getMessage());
-            }
-
             $user->update(['openai_thread_id' => null]);
         }
     }
@@ -468,90 +636,44 @@ class OpenAIAssistantService
     }
 
     /**
-     * Send a message for testing (admin panel) - creates a temporary thread
+     * Send a message for testing (admin panel)
      */
     public function sendMessageForTest(string $message, Assistant $assistant, array $context = []): array
     {
-        // Create a temporary thread for testing
-        $thread = OpenAI::threads()->create([]);
-        $threadId = $thread->id;
+        // Build input from context + new message
+        $input = [];
+        foreach ($context as $msg) {
+            $input[] = [
+                'role' => $msg['role'],
+                'content' => $msg['content'],
+            ];
+        }
+        $input[] = [
+            'role' => 'user',
+            'content' => $message,
+        ];
+
+        $tools = [];
+        if ($assistant->use_knowledge_base && $assistant->openai_vector_store_id) {
+            $tools[] = [
+                'type' => 'file_search',
+                'vector_store_ids' => [$assistant->openai_vector_store_id],
+            ];
+        }
 
         try {
-            // Add context messages first (previous conversation)
-            foreach ($context as $msg) {
-                OpenAI::threads()->messages()->create($threadId, [
-                    'role' => $msg['role'],
-                    'content' => $msg['content'],
-                ]);
-            }
-
-            // Add current user message
-            OpenAI::threads()->messages()->create($threadId, [
-                'role' => 'user',
-                'content' => $message,
+            $response = $this->callResponsesApi([
+                'model' => $assistant->model,
+                'instructions' => $assistant->system_prompt,
+                'input' => $input,
+                'tools' => $tools,
+                'max_output_tokens' => (int) $assistant->max_tokens,
+                'temperature' => $this->supportsTemperature($assistant->model) ? (float) $assistant->temperature : null,
             ]);
 
-            // Run the assistant
-            $runParams = [
-                'assistant_id' => $assistant->openai_assistant_id,
-                'max_completion_tokens' => (int) $assistant->max_tokens,
-            ];
-
-            // o1 and GPT-5 models don't support custom temperature (only default=1)
-            if (!str_starts_with($assistant->model, 'o1') && !str_starts_with($assistant->model, 'gpt-5')) {
-                $runParams['temperature'] = (float) $assistant->temperature;
-            }
-
-            $run = OpenAI::threads()->runs()->create($threadId, $runParams);
-
-            // Wait for completion (with timeout)
-            $maxAttempts = 60;
-            $attempts = 0;
-
-            while (in_array($run->status, ['queued', 'in_progress', 'requires_action'])) {
-                if ($attempts >= $maxAttempts) {
-                    throw new \RuntimeException('La respuesta del asistente tardó demasiado.');
-                }
-
-                sleep(1);
-                $run = OpenAI::threads()->runs()->retrieve($threadId, $run->id);
-                $attempts++;
-            }
-
-            if ($run->status === 'failed') {
-                throw new \RuntimeException('El asistente no pudo procesar la solicitud: ' . ($run->lastError?->message ?? 'Error desconocido'));
-            }
-
-            if ($run->status !== 'completed') {
-                throw new \RuntimeException('Estado inesperado del asistente: ' . $run->status);
-            }
-
-            // Get the assistant's response
-            $messages = OpenAI::threads()->messages()->list($threadId, [
-                'limit' => 1,
-                'order' => 'desc',
-            ]);
-
-            $content = '';
-            if (!empty($messages->data)) {
-                $lastMessage = $messages->data[0];
-                foreach ($lastMessage->content as $contentBlock) {
-                    if ($contentBlock->type === 'text') {
-                        $content .= $contentBlock->text->value;
-                    }
-                }
-            }
-
-            // Get token usage
-            $tokensInput = $run->usage?->promptTokens ?? 0;
-            $tokensOutput = $run->usage?->completionTokens ?? 0;
-
-            // Delete temporary thread
-            try {
-                OpenAI::threads()->delete($threadId);
-            } catch (\Exception $e) {
-                Log::warning('Could not delete test thread: ' . $e->getMessage());
-            }
+            $content = $this->extractResponseContent($response);
+            $tokensInput = $response['usage']['input_tokens'] ?? 0;
+            $tokensOutput = $response['usage']['output_tokens'] ?? 0;
 
             return [
                 'response' => $content,
@@ -562,13 +684,9 @@ class OpenAIAssistantService
                 ],
             ];
         } catch (\Exception $e) {
-            // Clean up thread on error
-            try {
-                OpenAI::threads()->delete($threadId);
-            } catch (\Exception $cleanupError) {
-                Log::warning('Could not delete test thread on error: ' . $cleanupError->getMessage());
-            }
-
+            Log::error('Error in test message: ' . $e->getMessage(), [
+                'assistant_id' => $assistant->id,
+            ]);
             throw $e;
         }
     }

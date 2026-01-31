@@ -26,7 +26,7 @@ class OpenAIService
     }
 
     /**
-     * Send a message using Chat Completions API or Assistants API (if knowledge base enabled)
+     * Send a message using Chat Completions API or Responses API (if knowledge base enabled)
      *
      * @return array{content: string, tokens_input: int, tokens_output: int, message_id: string}
      */
@@ -35,8 +35,8 @@ class OpenAIService
         // Get settings from user's assistant or fallback to global ai_settings
         $assistant = $conversation?->assistant ?? $user->getAssistant();
 
-        // If assistant uses knowledge base (Assistants API), delegate to that service
-        if ($assistant && $assistant->usesAssistantsApi()) {
+        // If assistant uses knowledge base (Responses API), delegate to that service
+        if ($assistant && $assistant->usesResponsesApi()) {
             return $this->getAssistantService()->sendMessage($user, $message, $assistant, $conversation);
         }
 
@@ -298,19 +298,9 @@ class OpenAIService
     {
         $assistant = $conversation?->assistant ?? $user->getAssistant();
 
-        // If using Assistants API (knowledge base), fall back to non-streaming
-        if ($assistant && $assistant->usesAssistantsApi()) {
-            $response = $this->getAssistantService()->sendMessage($user, $message, $assistant, $conversation);
-            yield [
-                'type' => 'content',
-                'content' => $response['content'],
-            ];
-            yield [
-                'type' => 'done',
-                'tokens_input' => $response['tokens_input'],
-                'tokens_output' => $response['tokens_output'],
-                'message_id' => $response['message_id'],
-            ];
+        // If using Responses API (knowledge base), use streaming from that service
+        if ($assistant && $assistant->usesResponsesApi()) {
+            yield from $this->getAssistantService()->sendMessageStreamed($user, $message, $assistant, $conversation);
             return;
         }
 

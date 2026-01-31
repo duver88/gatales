@@ -86,15 +86,24 @@ class Assistant extends Model
      */
     public function hasKnowledgeBase(): bool
     {
-        return $this->use_knowledge_base && $this->openai_assistant_id && $this->files()->ready()->exists();
+        return $this->use_knowledge_base && $this->openai_vector_store_id && $this->files()->ready()->exists();
     }
 
     /**
-     * Check if assistant needs OpenAI Assistants API (has knowledge base)
+     * Check if assistant uses Responses API (has knowledge base enabled)
+     * Note: With Responses API, we only need the vector store, not an OpenAI Assistant
+     */
+    public function usesResponsesApi(): bool
+    {
+        return $this->use_knowledge_base;
+    }
+
+    /**
+     * @deprecated Use usesResponsesApi() instead
      */
     public function usesAssistantsApi(): bool
     {
-        return $this->use_knowledge_base && $this->openai_assistant_id !== null;
+        return $this->usesResponsesApi();
     }
 
     /**
