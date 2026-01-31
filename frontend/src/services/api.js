@@ -100,6 +100,7 @@ export const chatApi = {
   sendConversationMessageStream: async (id, message, onChunk, onDone, onError) => {
     const token = localStorage.getItem('auth_token')
     const baseURL = import.meta.env.VITE_API_URL
+    let receivedDone = false
 
     try {
       const response = await fetch(`${baseURL}/conversations/${id}/messages/stream`, {
@@ -142,8 +143,10 @@ export const chatApi = {
               if (currentEvent === 'content') {
                 onChunk(data.text)
               } else if (currentEvent === 'done') {
+                receivedDone = true
                 onDone(data)
               } else if (currentEvent === 'error') {
+                receivedDone = true
                 onError(data)
               } else if (currentEvent === 'start') {
                 // Optional: handle start event
@@ -154,6 +157,12 @@ export const chatApi = {
             currentEvent = null
           }
         }
+      }
+
+      // Si el stream terminó sin evento 'done', llamar onDone con datos mínimos
+      if (!receivedDone) {
+        console.warn('Stream ended without done event')
+        onDone({ message_id: null, tokens_used: 0, tokens_balance: null, conversation: null })
       }
     } catch (error) {
       onError({ message: error.message })
@@ -237,6 +246,7 @@ export const adminApi = {
   sendTestConversationMessageStream: async (id, message, onChunk, onDone, onError) => {
     const token = localStorage.getItem('admin_token')
     const baseURL = import.meta.env.VITE_API_URL
+    let receivedDone = false
 
     try {
       const response = await fetch(`${baseURL}/admin/test-conversations/${id}/messages/stream`, {
@@ -277,8 +287,10 @@ export const adminApi = {
               if (currentEvent === 'content') {
                 onChunk(data.text)
               } else if (currentEvent === 'done') {
+                receivedDone = true
                 onDone(data)
               } else if (currentEvent === 'error') {
+                receivedDone = true
                 onError(data)
               }
             } catch (e) {
@@ -287,6 +299,12 @@ export const adminApi = {
             currentEvent = null
           }
         }
+      }
+
+      // Si el stream terminó sin evento 'done', llamar onDone con datos mínimos
+      if (!receivedDone) {
+        console.warn('Admin stream ended without done event')
+        onDone({ message_id: null, tokens_used: 0, conversation: null })
       }
     } catch (error) {
       onError({ message: error.message })

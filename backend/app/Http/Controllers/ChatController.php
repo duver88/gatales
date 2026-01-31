@@ -236,10 +236,22 @@ class ChatController extends Controller
         $message = $validated['message'];
 
         return new StreamedResponse(function () use ($user, $userId, $message, $conversation) {
-            // Disable output buffering
-            if (ob_get_level()) {
-                ob_end_clean();
+            // Deshabilitar TODOS los buffers de forma agresiva
+            @ini_set('output_buffering', 'off');
+            @ini_set('zlib.output_compression', false);
+            @ini_set('implicit_flush', true);
+
+            // Limpiar todos los niveles de output buffering
+            while (ob_get_level() > 0) {
+                ob_end_flush();
             }
+
+            // Forzar flush implícito
+            ob_implicit_flush(true);
+
+            // Enviar padding inicial para forzar que los buffers se vacíen
+            echo ": " . str_repeat(' ', 4096) . "\n\n";
+            flush();
 
             try {
                 // Double-check userId is valid inside closure
@@ -338,9 +350,11 @@ class ChatController extends Controller
             }
         }, 200, [
             'Content-Type' => 'text/event-stream',
-            'Cache-Control' => 'no-cache',
+            'Cache-Control' => 'no-cache, no-store, must-revalidate',
             'Connection' => 'keep-alive',
             'X-Accel-Buffering' => 'no',
+            'Content-Encoding' => 'none',
+            'Transfer-Encoding' => 'chunked',
         ]);
     }
 
@@ -351,10 +365,8 @@ class ChatController extends Controller
     {
         echo "event: {$event}\n";
         echo "data: " . json_encode($data) . "\n\n";
-
-        if (ob_get_level()) {
-            ob_flush();
-        }
+        // Agregar padding para forzar flush de buffers de PHP-FPM/Nginx
+        echo ": " . str_repeat(' ', 256) . "\n\n";
         flush();
     }
 

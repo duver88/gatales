@@ -320,9 +320,23 @@ class AdminConversationController extends Controller
         $usesResponsesApi = $assistant->usesResponsesApi();
 
         return new StreamedResponse(function () use ($admin, $message, $conversation, $assistant, $usesResponsesApi) {
-            if (ob_get_level()) {
-                ob_end_clean();
+            // Deshabilitar TODOS los buffers de forma agresiva
+            @ini_set('output_buffering', 'off');
+            @ini_set('zlib.output_compression', false);
+            @ini_set('implicit_flush', true);
+
+            // Limpiar todos los niveles de output buffering
+            while (ob_get_level() > 0) {
+                ob_end_flush();
             }
+
+            // Forzar flush implícito
+            ob_implicit_flush(true);
+
+            // Enviar padding inicial para forzar que los buffers de PHP-FPM/Nginx se vacíen
+            // Los buffers suelen ser de 4KB/8KB, así que enviamos suficiente padding
+            echo ": " . str_repeat(' ', 4096) . "\n\n";
+            flush();
 
             try {
                 $isFirstMessage = $conversation->messages()->count() === 0;
@@ -379,6 +393,13 @@ class AdminConversationController extends Controller
                     $ch = curl_init('https://api.openai.com/v1/responses');
                     $buffer = '';
 
+                    // Use object to store state (closures with references can be problematic)
+                    $state = new \stdClass();
+                    $state->fullContent = '';
+                    $state->tokensInput = 0;
+                    $state->tokensOutput = 0;
+                    $state->buffer = '';
+
                     curl_setopt_array($ch, [
                         CURLOPT_POST => true,
                         CURLOPT_POSTFIELDS => json_encode($params),
@@ -390,33 +411,56 @@ class AdminConversationController extends Controller
                         CURLOPT_RETURNTRANSFER => false,
                         CURLOPT_TIMEOUT => 300,
                         CURLOPT_CONNECTTIMEOUT => 30,
-                        CURLOPT_WRITEFUNCTION => function($ch, $data) use (&$fullContent, &$tokensInput, &$tokensOutput, &$buffer) {
-                            $buffer .= $data;
+                        CURLOPT_WRITEFUNCTION => function($ch, $data) use ($state) {
+                            $state->buffer .= $data;
 
-                            while (($pos = strpos($buffer, "\n")) !== false) {
-                                $line = substr($buffer, 0, $pos);
-                                $buffer = substr($buffer, $pos + 1);
+                            // Log raw data for debugging
+                            \Log::debug('OpenAI SSE raw chunk', ['data' => $data]);
+
+                            while (($pos = strpos($state->buffer, "\n")) !== false) {
+                                $line = substr($state->buffer, 0, $pos);
+                                $state->buffer = substr($state->buffer, $pos + 1);
                                 $line = trim($line);
 
                                 if (empty($line) || $line === 'data: [DONE]') continue;
 
                                 if (str_starts_with($line, 'data: ')) {
-                                    $event = json_decode(substr($line, 6), true);
+                                    $jsonStr = substr($line, 6);
+                                    $event = json_decode($jsonStr, true);
+
+                                    // Log parsed event
+                                    \Log::debug('OpenAI SSE event', ['event' => $event]);
+
                                     if (!$event) continue;
 
-                                    // Handle content delta
-                                    if (isset($event['type']) && $event['type'] === 'response.output_text.delta' && isset($event['delta'])) {
-                                        $fullContent .= $event['delta'];
+                                    // Handle content delta - check multiple possible formats
+                                    $delta = null;
+                                    if (isset($event['type']) && $event['type'] === 'response.output_text.delta') {
+                                        $delta = $event['delta'] ?? null;
+                                    }
+                                    // Also check for text content in output items
+                                    if (isset($event['type']) && $event['type'] === 'content_block_delta' && isset($event['delta']['text'])) {
+                                        $delta = $event['delta']['text'];
+                                    }
+                                    // Check for direct delta content
+                                    if (isset($event['delta']) && is_string($event['delta'])) {
+                                        $delta = $event['delta'];
+                                    }
+
+                                    if ($delta !== null) {
+                                        $state->fullContent .= $delta;
+                                        \Log::info('Sending SSE chunk to client', ['delta' => $delta, 'total_len' => strlen($state->fullContent)]);
                                         echo "event: content\n";
-                                        echo "data: " . json_encode(['text' => $event['delta']]) . "\n\n";
-                                        if (ob_get_level()) ob_flush();
+                                        echo "data: " . json_encode(['text' => $delta]) . "\n\n";
+                                        // Agregar padding para forzar flush de buffers
+                                        echo ": " . str_repeat(' ', 256) . "\n\n";
                                         flush();
                                     }
 
                                     // Handle completion
                                     if (isset($event['type']) && $event['type'] === 'response.completed' && isset($event['response'])) {
-                                        $tokensInput = $event['response']['usage']['input_tokens'] ?? 0;
-                                        $tokensOutput = $event['response']['usage']['output_tokens'] ?? 0;
+                                        $state->tokensInput = $event['response']['usage']['input_tokens'] ?? 0;
+                                        $state->tokensOutput = $event['response']['usage']['output_tokens'] ?? 0;
                                     }
                                 }
                             }
@@ -428,6 +472,18 @@ class AdminConversationController extends Controller
                     $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
                     $curlError = curl_error($ch);
                     curl_close($ch);
+
+                    // Copy state back to local variables
+                    $fullContent = $state->fullContent;
+                    $tokensInput = $state->tokensInput;
+                    $tokensOutput = $state->tokensOutput;
+
+                    \Log::info('OpenAI streaming complete', [
+                        'httpCode' => $httpCode,
+                        'contentLength' => strlen($fullContent),
+                        'tokensInput' => $tokensInput,
+                        'tokensOutput' => $tokensOutput,
+                    ]);
 
                     if ($httpCode !== 200) {
                         throw new \Exception("API error: HTTP $httpCode - $curlError");
@@ -520,9 +576,11 @@ class AdminConversationController extends Controller
             }
         }, 200, [
             'Content-Type' => 'text/event-stream',
-            'Cache-Control' => 'no-cache',
+            'Cache-Control' => 'no-cache, no-store, must-revalidate',
             'Connection' => 'keep-alive',
             'X-Accel-Buffering' => 'no',
+            'Content-Encoding' => 'none',
+            'Transfer-Encoding' => 'chunked',
         ]);
     }
 
@@ -530,9 +588,8 @@ class AdminConversationController extends Controller
     {
         echo "event: {$event}\n";
         echo "data: " . json_encode($data) . "\n\n";
-        if (ob_get_level()) {
-            ob_flush();
-        }
+        // Agregar padding para forzar flush de buffers de PHP-FPM/Nginx
+        echo ": " . str_repeat(' ', 256) . "\n\n";
         flush();
     }
 

@@ -249,7 +249,7 @@ class WebhookController extends Controller
     {
         $log = WebhookLog::logWebhook('n8n', 'refund', $request->all());
 
-        try {
+        try { 
             $validated = $request->validate([
                 'email' => 'required_without:subscription_id|email',
                 'subscription_id' => 'required_without:email|string',
