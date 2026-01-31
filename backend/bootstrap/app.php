@@ -14,9 +14,6 @@ return Application::configure(basePath: dirname(__DIR__))
         health: '/up',
     )
     ->withMiddleware(function (Middleware $middleware): void {
-        // Stateful domains for Sanctum (for SPA authentication)
-        $middleware->statefulApi();
-
         // Register custom middleware aliases
         $middleware->alias([
             'webhook.secret' => ValidateWebhookSecret::class,
