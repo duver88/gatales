@@ -60,10 +60,12 @@ class OpenAIAssistantService
 
         // Add file_search tool if knowledge base is enabled
         if ($assistant->use_knowledge_base && $assistant->openai_vector_store_id) {
-            $params['tools'] = [['type' => 'file_search']];
-            $params['tool_resources'] = [
-                'file_search' => [
-                    'vector_store_ids' => [$assistant->openai_vector_store_id],
+            $params['tools'] = [
+                [
+                    'type' => 'file_search',
+                    'file_search' => [
+                        'vector_store_ids' => [$assistant->openai_vector_store_id],
+                    ],
                 ],
             ];
         }
@@ -119,10 +121,12 @@ class OpenAIAssistantService
 
         // Add file_search tool if knowledge base is enabled
         if ($assistant->use_knowledge_base && $assistant->openai_vector_store_id) {
-            $params['tools'] = [['type' => 'file_search']];
-            $params['tool_resources'] = [
-                'file_search' => [
-                    'vector_store_ids' => [$assistant->openai_vector_store_id],
+            $params['tools'] = [
+                [
+                    'type' => 'file_search',
+                    'file_search' => [
+                        'vector_store_ids' => [$assistant->openai_vector_store_id],
+                    ],
                 ],
             ];
         }
@@ -682,10 +686,12 @@ class OpenAIAssistantService
 
         // Add file_search tool if knowledge base is enabled
         if ($assistant->use_knowledge_base && $assistant->openai_vector_store_id) {
-            $params['tools'] = [['type' => 'file_search']];
-            $params['tool_resources'] = [
-                'file_search' => [
-                    'vector_store_ids' => [$assistant->openai_vector_store_id],
+            $params['tools'] = [
+                [
+                    'type' => 'file_search',
+                    'file_search' => [
+                        'vector_store_ids' => [$assistant->openai_vector_store_id],
+                    ],
                 ],
             ];
         }
