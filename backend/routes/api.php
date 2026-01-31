@@ -101,6 +101,7 @@ Route::prefix('admin')->group(function () {
 
         // Users Management
         Route::get('/users', [AdminUserController::class, 'index']);
+        Route::post('/users', [AdminUserController::class, 'store']);
         Route::get('/users/{user}', [AdminUserController::class, 'show']);
         Route::patch('/users/{user}', [AdminUserController::class, 'update']);
         Route::post('/users/{user}/activate', [AdminUserController::class, 'activate']);
@@ -110,7 +111,9 @@ Route::prefix('admin')->group(function () {
 
         // Plans Management
         Route::get('/plans', [PlanController::class, 'index']);
+        Route::post('/plans', [PlanController::class, 'store']);
         Route::patch('/plans/{plan}', [PlanController::class, 'update']);
+        Route::delete('/plans/{plan}', [PlanController::class, 'destroy']);
 
         // Token Statistics
         Route::get('/stats/tokens', [DashboardController::class, 'tokenStats']);

@@ -11,12 +11,62 @@ use App\Models\User;
 use App\Services\TokenService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Hash;
 
 class UserController extends Controller
 {
     public function __construct(
         private TokenService $tokenService
     ) {}
+
+    /**
+     * Create a new user manually
+     */
+    public function store(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'name' => 'required|string|max:255',
+            'email' => 'required|email|unique:users,email',
+            'password' => 'required|string|min:6',
+            'plan_id' => 'nullable|exists:plans,id',
+            'tokens_balance' => 'nullable|integer|min:0',
+            'status' => 'nullable|in:active,inactive,pending',
+        ]);
+
+        // Create user
+        $user = User::create([
+            'name' => $validated['name'],
+            'email' => $validated['email'],
+            'password' => Hash::make($validated['password']),
+            'status' => $validated['status'] ?? 'active',
+            'tokens_balance' => $validated['tokens_balance'] ?? 0,
+            'email_verified_at' => now(),
+        ]);
+
+        // Assign plan if provided
+        if (!empty($validated['plan_id'])) {
+            $plan = Plan::find($validated['plan_id']);
+
+            Subscription::create([
+                'user_id' => $user->id,
+                'plan_id' => $plan->id,
+                'status' => 'active',
+                'starts_at' => now(),
+                'ends_at' => now()->addMonth(),
+            ]);
+
+            // Set tokens from plan if not explicitly provided
+            if (!isset($validated['tokens_balance'])) {
+                $user->update(['tokens_balance' => $plan->tokens_monthly]);
+            }
+        }
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Usuario creado correctamente',
+            'user' => $user->fresh()->load('activeSubscription.plan'),
+        ], 201);
+    }
 
     /**
      * List all users with pagination and filters

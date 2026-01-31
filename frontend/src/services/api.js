@@ -177,6 +177,7 @@ export const adminApi = {
 
   // Users
   getUsers: (params) => api.get('/admin/users', { params }),
+  createUser: (data) => api.post('/admin/users', data),
   getUser: (id) => api.get(`/admin/users/${id}`),
   updateUser: (id, data) => api.patch(`/admin/users/${id}`, data),
   activateUser: (id) => api.post(`/admin/users/${id}/activate`),
@@ -186,7 +187,9 @@ export const adminApi = {
 
   // Plans
   getPlans: () => api.get('/admin/plans'),
+  createPlan: (data) => api.post('/admin/plans', data),
   updatePlan: (id, data) => api.patch(`/admin/plans/${id}`, data),
+  deletePlan: (id) => api.delete(`/admin/plans/${id}`),
 
   // Webhook Logs
   getWebhookLogs: (params) => api.get('/admin/webhook-logs', { params }),

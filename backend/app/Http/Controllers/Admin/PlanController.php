@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Plan;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Str;
 
 class PlanController extends Controller
 {
@@ -41,13 +42,55 @@ class PlanController extends Controller
     }
 
     /**
+     * Create a new plan
+     */
+    public function store(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'name' => 'required|string|max:255',
+            'tokens_monthly' => 'required|integer|min:0',
+            'price' => 'required|numeric|min:0',
+            'hotmart_product_id' => 'nullable|string',
+            'features' => 'nullable|array',
+            'is_active' => 'boolean',
+        ]);
+
+        // Generate slug from name
+        $slug = Str::slug($validated['name']);
+        $originalSlug = $slug;
+        $counter = 1;
+
+        // Ensure unique slug
+        while (Plan::where('slug', $slug)->exists()) {
+            $slug = $originalSlug . '-' . $counter;
+            $counter++;
+        }
+
+        $plan = Plan::create([
+            'name' => $validated['name'],
+            'slug' => $slug,
+            'tokens_monthly' => $validated['tokens_monthly'],
+            'price' => $validated['price'],
+            'hotmart_product_id' => $validated['hotmart_product_id'] ?? null,
+            'features' => $validated['features'] ?? [],
+            'is_active' => $validated['is_active'] ?? true,
+        ]);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Plan creado correctamente',
+            'plan' => $plan,
+        ], 201);
+    }
+
+    /**
      * Update a plan
      */
     public function update(Request $request, Plan $plan): JsonResponse
     {
         $validated = $request->validate([
             'name' => 'sometimes|string|max:255',
-            'tokens_monthly' => 'sometimes|integer|min:1000',
+            'tokens_monthly' => 'sometimes|integer|min:0',
             'price' => 'sometimes|numeric|min:0',
             'hotmart_product_id' => 'sometimes|nullable|string',
             'features' => 'sometimes|nullable|array',
@@ -60,6 +103,37 @@ class PlanController extends Controller
             'success' => true,
             'message' => 'Plan actualizado correctamente',
             'plan' => $plan->fresh(),
+        ]);
+    }
+
+    /**
+     * Delete a plan
+     */
+    public function destroy(Plan $plan): JsonResponse
+    {
+        // Check if plan has active subscriptions
+        $activeSubscriptions = $plan->subscriptions()->where('status', 'active')->count();
+
+        if ($activeSubscriptions > 0) {
+            return response()->json([
+                'success' => false,
+                'message' => "No se puede eliminar el plan porque tiene {$activeSubscriptions} suscripciones activas",
+            ], 422);
+        }
+
+        // Don't allow deleting the free plan
+        if ($plan->slug === 'free') {
+            return response()->json([
+                'success' => false,
+                'message' => 'No se puede eliminar el plan gratuito',
+            ], 422);
+        }
+
+        $plan->delete();
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Plan eliminado correctamente',
         ]);
     }
 }
