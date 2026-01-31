@@ -430,7 +430,8 @@ class ChatController extends Controller
         $state->tokensInput = 0;
         $state->tokensOutput = 0;
         $state->buffer = '';
-        $state->controller = $this;
+        $state->errorMessage = null;
+        $state->rawResponse = '';
 
         $ch = curl_init('https://api.openai.com/v1/responses');
 
@@ -443,9 +444,10 @@ class ChatController extends Controller
                 'Accept: text/event-stream',
             ],
             CURLOPT_RETURNTRANSFER => false,
-            CURLOPT_TIMEOUT => 300, // 5 minutes for GPT-5 with file_search
+            CURLOPT_TIMEOUT => 300,
             CURLOPT_CONNECTTIMEOUT => 30,
             CURLOPT_WRITEFUNCTION => function($ch, $data) use ($state) {
+                $state->rawResponse .= $data;
                 $state->buffer .= $data;
 
                 while (($pos = strpos($state->buffer, "\n")) !== false) {
@@ -461,18 +463,29 @@ class ChatController extends Controller
 
                         if (!$event) continue;
 
-                        // Handle content delta
-                        $delta = null;
-                        if (isset($event['type']) && $event['type'] === 'response.output_text.delta') {
-                            $delta = $event['delta'] ?? null;
+                        // Check for API errors
+                        if (isset($event['error'])) {
+                            $state->errorMessage = $event['error']['message'] ?? 'Unknown API error';
+                            Log::error('OpenAI API error in stream', ['error' => $event['error']]);
+                            continue;
                         }
-                        if (isset($event['delta']) && is_string($event['delta'])) {
+
+                        // Handle content delta - multiple formats for compatibility
+                        $delta = null;
+                        if (isset($event['type'])) {
+                            if ($event['type'] === 'response.output_text.delta' && isset($event['delta'])) {
+                                $delta = $event['delta'];
+                            } elseif ($event['type'] === 'content_block_delta' && isset($event['delta']['text'])) {
+                                $delta = $event['delta']['text'];
+                            }
+                        }
+                        // Fallback: direct delta string
+                        if ($delta === null && isset($event['delta']) && is_string($event['delta'])) {
                             $delta = $event['delta'];
                         }
 
-                        if ($delta !== null) {
+                        if ($delta !== null && $delta !== '') {
                             $state->fullContent .= $delta;
-                            // Send SSE event directly for real-time streaming
                             echo "event: content\n";
                             echo "data: " . json_encode(['text' => $delta]) . "\n\n";
                             echo ": " . str_repeat(' ', 256) . "\n\n";
@@ -490,10 +503,23 @@ class ChatController extends Controller
             },
         ]);
 
-        curl_exec($ch);
+        $success = curl_exec($ch);
         $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
         $curlError = curl_error($ch);
+        $curlErrno = curl_errno($ch);
         curl_close($ch);
+
+        // Log for debugging
+        if ($httpCode !== 200 || !$success || $state->errorMessage) {
+            Log::error('OpenAI Responses API streaming failed', [
+                'http_code' => $httpCode,
+                'curl_error' => $curlError,
+                'curl_errno' => $curlErrno,
+                'api_error' => $state->errorMessage,
+                'raw_response_preview' => substr($state->rawResponse, 0, 500),
+                'model' => $assistant->model,
+            ]);
+        }
 
         // Copy state back
         $fullContent = $state->fullContent;
@@ -501,8 +527,17 @@ class ChatController extends Controller
         $tokensOutput = $state->tokensOutput;
         $messageId = 'resp_' . time();
 
+        // Throw on errors
+        if ($state->errorMessage) {
+            throw new \Exception("OpenAI API error: " . $state->errorMessage);
+        }
+
+        if (!$success) {
+            throw new \Exception("cURL error ($curlErrno): $curlError");
+        }
+
         if ($httpCode !== 200) {
-            throw new \Exception("API error: HTTP $httpCode - $curlError");
+            throw new \Exception("API error: HTTP $httpCode");
         }
     }
 
