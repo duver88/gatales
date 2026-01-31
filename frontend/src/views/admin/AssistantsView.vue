@@ -4,6 +4,7 @@ import { adminApi } from '../../services/api'
 
 const assistants = ref([])
 const availableModels = ref({})
+const reasoningEffortOptions = ref({})
 const isLoading = ref(true)
 const error = ref(null)
 const success = ref(null)
@@ -38,6 +39,7 @@ const defaultFormData = {
   description: '',
   is_active: true,
   model: 'gpt-4o-mini',
+  reasoning_effort: 'minimal',
   system_prompt: 'Eres un asistente de IA util y amigable.',
   temperature: 0.7,
   max_tokens: 2000,
@@ -74,6 +76,12 @@ const isNewModel = computed(() => {
   return model.startsWith('gpt-5') || model.startsWith('o1')
 })
 
+// Computed to check if model supports reasoning effort (GPT-5 only)
+const supportsReasoningEffort = computed(() => {
+  const model = formData.value.model || ''
+  return model.startsWith('gpt-5')
+})
+
 // Computed for formatted total size
 const formattedTotalSize = computed(() => {
   if (!filesStats.value) return '0 bytes'
@@ -95,6 +103,7 @@ async function fetchAssistants() {
     const response = await adminApi.getAssistants()
     assistants.value = response.data.assistants
     availableModels.value = response.data.available_models || {}
+    reasoningEffortOptions.value = response.data.reasoning_effort_options || {}
   } catch (e) {
     error.value = 'Error al cargar los asistentes'
   } finally {
@@ -480,6 +489,21 @@ function getStatusText(status) {
                 <label class="block text-sm font-medium text-gatales-text-secondary mb-1">Max Tokens</label>
                 <input v-model.number="formData.max_tokens" type="number" min="100" max="16000" class="input-field" />
                 <p class="text-xs text-gatales-text-secondary mt-1">Maximo de tokens en la respuesta</p>
+              </div>
+              <!-- Reasoning Effort (GPT-5 only) -->
+              <div v-if="supportsReasoningEffort" class="sm:col-span-2">
+                <label class="block text-sm font-medium text-gatales-text-secondary mb-1">Reasoning Effort (Velocidad vs Calidad)</label>
+                <select v-model="formData.reasoning_effort" class="input-field">
+                  <option v-for="(label, value) in reasoningEffortOptions" :key="value" :value="value">
+                    {{ label }}
+                  </option>
+                </select>
+                <p class="text-xs text-gatales-text-secondary mt-1">
+                  Controla el nivel de razonamiento de GPT-5. <span class="text-yellow-400">minimal = más rápido</span>, high = mejor calidad
+                </p>
+                <p v-if="formData.use_knowledge_base" class="text-xs text-orange-400 mt-1">
+                  ⚠️ Con Knowledge Base activado, este parámetro NO se aplica (conflicto con file_search)
+                </p>
               </div>
               <div>
                 <label class="block text-sm font-medium text-gatales-text-secondary mb-1">
