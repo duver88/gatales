@@ -229,7 +229,7 @@ class OpenAIAssistantService
     }
 
     /**
-     * Stream from the OpenAI Responses API
+     * Stream from the OpenAI Responses API (real-time streaming)
      */
     private function streamResponsesApi(array $params): \Generator
     {
@@ -238,102 +238,126 @@ class OpenAIAssistantService
         // Remove null values
         $params = array_filter($params, fn($v) => $v !== null);
 
-        $ch = curl_init('https://api.openai.com/v1/responses');
-        curl_setopt_array($ch, [
-            CURLOPT_POST => true,
-            CURLOPT_POSTFIELDS => json_encode($params),
-            CURLOPT_HTTPHEADER => [
-                'Authorization: Bearer ' . $apiKey,
-                'Content-Type: application/json',
-                'Accept: text/event-stream',
+        // Use PHP streams for real-time SSE handling
+        $context = stream_context_create([
+            'http' => [
+                'method' => 'POST',
+                'header' => [
+                    'Authorization: Bearer ' . $apiKey,
+                    'Content-Type: application/json',
+                    'Accept: text/event-stream',
+                ],
+                'content' => json_encode($params),
+                'timeout' => 120,
+                'ignore_errors' => true,
             ],
-            CURLOPT_RETURNTRANSFER => false,
-            CURLOPT_WRITEFUNCTION => function($ch, $data) use (&$buffer) {
-                $buffer .= $data;
-                return strlen($data);
-            },
-            CURLOPT_TIMEOUT => 120,
+            'ssl' => [
+                'verify_peer' => true,
+                'verify_peer_name' => true,
+            ],
         ]);
 
-        $buffer = '';
-        $tokensInput = 0;
-        $tokensOutput = 0;
-        $messageId = null;
+        $stream = @fopen('https://api.openai.com/v1/responses', 'r', false, $context);
 
-        // Use a different approach - collect all and process
-        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-        $result = curl_exec($ch);
-
-        if (curl_errno($ch)) {
-            curl_close($ch);
-            throw new \RuntimeException('Curl error: ' . curl_error($ch));
+        if (!$stream) {
+            throw new \RuntimeException('Could not open stream to Responses API');
         }
 
-        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-        curl_close($ch);
+        // Check HTTP status from response headers
+        $meta = stream_get_meta_data($stream);
+        $httpStatus = 200;
+        if (isset($meta['wrapper_data'])) {
+            foreach ($meta['wrapper_data'] as $header) {
+                if (preg_match('/^HTTP\/\d+\.\d+\s+(\d+)/', $header, $matches)) {
+                    $httpStatus = (int) $matches[1];
+                    break;
+                }
+            }
+        }
 
-        if ($httpCode !== 200) {
-            $error = json_decode($result, true);
+        if ($httpStatus !== 200) {
+            $errorBody = stream_get_contents($stream);
+            fclose($stream);
+            $error = json_decode($errorBody, true);
             throw new \RuntimeException(
-                $error['error']['message'] ?? 'Error calling Responses API: ' . $httpCode
+                $error['error']['message'] ?? 'Error calling Responses API: ' . $httpStatus
             );
         }
 
-        // Parse SSE events
-        $lines = explode("\n", $result);
-        foreach ($lines as $line) {
-            $line = trim($line);
-            if (empty($line) || $line === 'data: [DONE]') {
-                continue;
+        $tokensInput = 0;
+        $tokensOutput = 0;
+        $messageId = null;
+        $buffer = '';
+
+        // Read stream line by line for real-time processing
+        while (!feof($stream)) {
+            $chunk = fread($stream, 1024);
+            if ($chunk === false) {
+                break;
             }
 
-            if (str_starts_with($line, 'data: ')) {
-                $json = substr($line, 6);
-                $event = json_decode($json, true);
+            $buffer .= $chunk;
 
-                if (!$event) continue;
+            // Process complete lines
+            while (($pos = strpos($buffer, "\n")) !== false) {
+                $line = substr($buffer, 0, $pos);
+                $buffer = substr($buffer, $pos + 1);
 
-                // Handle different event types
-                if (isset($event['type'])) {
-                    switch ($event['type']) {
-                        case 'response.output_text.delta':
-                            if (isset($event['delta'])) {
-                                yield [
-                                    'type' => 'content',
-                                    'content' => $event['delta'],
-                                ];
-                            }
-                            break;
+                $line = trim($line);
+                if (empty($line) || $line === 'data: [DONE]') {
+                    continue;
+                }
 
-                        case 'response.completed':
-                            if (isset($event['response'])) {
-                                $messageId = $event['response']['id'] ?? null;
-                                $tokensInput = $event['response']['usage']['input_tokens'] ?? 0;
-                                $tokensOutput = $event['response']['usage']['output_tokens'] ?? 0;
-                            }
-                            break;
+                if (str_starts_with($line, 'data: ')) {
+                    $json = substr($line, 6);
+                    $event = json_decode($json, true);
+
+                    if (!$event) continue;
+
+                    // Handle different event types from Responses API
+                    if (isset($event['type'])) {
+                        switch ($event['type']) {
+                            case 'response.output_text.delta':
+                                if (isset($event['delta'])) {
+                                    yield [
+                                        'type' => 'content',
+                                        'content' => $event['delta'],
+                                    ];
+                                }
+                                break;
+
+                            case 'response.completed':
+                                if (isset($event['response'])) {
+                                    $messageId = $event['response']['id'] ?? null;
+                                    $tokensInput = $event['response']['usage']['input_tokens'] ?? 0;
+                                    $tokensOutput = $event['response']['usage']['output_tokens'] ?? 0;
+                                }
+                                break;
+                        }
                     }
-                }
 
-                // Also check for content delta in different format
-                if (isset($event['delta']['content'])) {
-                    yield [
-                        'type' => 'content',
-                        'content' => $event['delta']['content'],
-                    ];
-                }
+                    // Also check for content delta in different format
+                    if (isset($event['delta']['content'])) {
+                        yield [
+                            'type' => 'content',
+                            'content' => $event['delta']['content'],
+                        ];
+                    }
 
-                // Check for usage info
-                if (isset($event['usage'])) {
-                    $tokensInput = $event['usage']['input_tokens'] ?? $tokensInput;
-                    $tokensOutput = $event['usage']['output_tokens'] ?? $tokensOutput;
-                }
+                    // Check for usage info
+                    if (isset($event['usage'])) {
+                        $tokensInput = $event['usage']['input_tokens'] ?? $tokensInput;
+                        $tokensOutput = $event['usage']['output_tokens'] ?? $tokensOutput;
+                    }
 
-                if (isset($event['id']) && !$messageId) {
-                    $messageId = $event['id'];
+                    if (isset($event['id']) && !$messageId) {
+                        $messageId = $event['id'];
+                    }
                 }
             }
         }
+
+        fclose($stream);
 
         yield [
             'type' => 'done',
@@ -707,6 +731,80 @@ class OpenAIAssistantService
             ];
         } catch (\Exception $e) {
             Log::error('Error in test message: ' . $e->getMessage(), [
+                'assistant_id' => $assistant->id,
+            ]);
+            throw $e;
+        }
+    }
+
+    /**
+     * Send a message for testing with streaming (admin panel)
+     */
+    public function sendMessageStreamedForTest(string $message, Assistant $assistant, array $context = []): \Generator
+    {
+        // Build input from context + new message
+        $input = [];
+        foreach ($context as $msg) {
+            $input[] = [
+                'role' => $msg['role'],
+                'content' => $msg['content'],
+            ];
+        }
+        $input[] = [
+            'role' => 'user',
+            'content' => $message,
+        ];
+
+        // Build request params
+        $params = [
+            'model' => $assistant->model,
+            'instructions' => $assistant->system_prompt,
+            'input' => $input,
+            'max_output_tokens' => (int) $assistant->max_tokens,
+            'stream' => true,
+        ];
+
+        // Add temperature if supported
+        if ($this->supportsTemperature($assistant->model)) {
+            $params['temperature'] = (float) $assistant->temperature;
+        }
+
+        // Add file_search tool if knowledge base is enabled
+        if ($assistant->use_knowledge_base && $assistant->openai_vector_store_id) {
+            $params['tools'] = [
+                [
+                    'type' => 'file_search',
+                    'vector_store_ids' => [$assistant->openai_vector_store_id],
+                ],
+            ];
+        }
+
+        try {
+            $fullContent = '';
+            $tokensInput = 0;
+            $tokensOutput = 0;
+            $messageId = null;
+
+            foreach ($this->streamResponsesApi($params) as $chunk) {
+                if ($chunk['type'] === 'content') {
+                    $fullContent .= $chunk['content'];
+                    yield $chunk;
+                } elseif ($chunk['type'] === 'done') {
+                    $tokensInput = $chunk['tokens_input'] ?? 0;
+                    $tokensOutput = $chunk['tokens_output'] ?? 0;
+                    $messageId = $chunk['message_id'] ?? null;
+                }
+            }
+
+            yield [
+                'type' => 'done',
+                'full_content' => $fullContent,
+                'tokens_input' => $tokensInput,
+                'tokens_output' => $tokensOutput,
+                'message_id' => $messageId ?? 'resp_' . time(),
+            ];
+        } catch (\Exception $e) {
+            Log::error('Error in test message streaming: ' . $e->getMessage(), [
                 'assistant_id' => $assistant->id,
             ]);
             throw $e;

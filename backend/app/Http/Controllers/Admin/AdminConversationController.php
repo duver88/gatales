@@ -316,14 +316,10 @@ class AdminConversationController extends Controller
             return $this->streamError('Asistente no encontrado');
         }
 
-        // If using Assistants API (knowledge base), fall back to non-streaming
-        if ($assistant->usesAssistantsApi()) {
-            return $this->streamError('Streaming no disponible con base de conocimiento. Use el endpoint normal.');
-        }
-
         $message = $validated['message'];
+        $usesResponsesApi = $assistant->usesResponsesApi();
 
-        return new StreamedResponse(function () use ($admin, $message, $conversation, $assistant) {
+        return new StreamedResponse(function () use ($admin, $message, $conversation, $assistant, $usesResponsesApi) {
             if (ob_get_level()) {
                 ob_end_clean();
             }
@@ -344,60 +340,76 @@ class AdminConversationController extends Controller
                 $this->sendSSE('start', ['user_message_id' => $userMessage->id]);
 
                 // Build context
-                $settings = $assistant->toSettingsArray();
-                $model = $settings['model'];
-
                 $context = $conversation->messages()
                     ->orderBy('created_at', 'asc')
                     ->get()
                     ->map(fn($msg) => ['role' => $msg->role, 'content' => $msg->content])
                     ->toArray();
 
-                $messages = [['role' => 'system', 'content' => $settings['system_prompt']]];
-                foreach ($context as $msg) {
-                    $messages[] = $msg;
-                }
-                $messages[] = ['role' => 'user', 'content' => $message];
-
-                // Build params
-                $params = ['model' => $model, 'messages' => $messages, 'stream' => true, 'stream_options' => ['include_usage' => true]];
-
-                $newModels = ['gpt-5', 'o1', 'o1-mini', 'o1-preview'];
-                $usesNewFormat = false;
-                foreach ($newModels as $newModel) {
-                    if (str_starts_with($model, $newModel)) {
-                        $usesNewFormat = true;
-                        break;
-                    }
-                }
-
-                if ($usesNewFormat) {
-                    $params['max_completion_tokens'] = (int) $settings['max_tokens'];
-                } else {
-                    $params['max_tokens'] = (int) $settings['max_tokens'];
-                    $params['temperature'] = (float) $settings['temperature'];
-                }
-
-                // Stream response
-                $stream = OpenAI::chat()->createStreamed($params);
-
                 $fullContent = '';
                 $tokensInput = 0;
                 $tokensOutput = 0;
 
-                foreach ($stream as $response) {
-                    // Skip empty chunks
-                    if (isset($response->choices[0]->delta->content)) {
-                        $chunk = $response->choices[0]->delta->content;
-                        if ($chunk !== null && $chunk !== '') {
-                            $fullContent .= $chunk;
-                            $this->sendSSE('content', ['text' => $chunk]);
+                if ($usesResponsesApi) {
+                    // Use Responses API streaming
+                    $stream = $this->assistantService->sendMessageStreamedForTest($message, $assistant, $context);
+
+                    foreach ($stream as $chunk) {
+                        if ($chunk['type'] === 'content') {
+                            $fullContent .= $chunk['content'];
+                            $this->sendSSE('content', ['text' => $chunk['content']]);
+                        } elseif ($chunk['type'] === 'done') {
+                            $tokensInput = $chunk['tokens_input'] ?? 0;
+                            $tokensOutput = $chunk['tokens_output'] ?? 0;
+                        }
+                    }
+                } else {
+                    // Use Chat Completions API streaming
+                    $settings = $assistant->toSettingsArray();
+                    $model = $settings['model'];
+
+                    $messages = [['role' => 'system', 'content' => $settings['system_prompt']]];
+                    foreach ($context as $msg) {
+                        $messages[] = $msg;
+                    }
+                    $messages[] = ['role' => 'user', 'content' => $message];
+
+                    // Build params
+                    $params = ['model' => $model, 'messages' => $messages, 'stream' => true, 'stream_options' => ['include_usage' => true]];
+
+                    $newModels = ['gpt-5', 'o1', 'o1-mini', 'o1-preview'];
+                    $usesNewFormat = false;
+                    foreach ($newModels as $newModel) {
+                        if (str_starts_with($model, $newModel)) {
+                            $usesNewFormat = true;
+                            break;
                         }
                     }
 
-                    if (isset($response->usage)) {
-                        $tokensInput = $response->usage->promptTokens ?? 0;
-                        $tokensOutput = $response->usage->completionTokens ?? 0;
+                    if ($usesNewFormat) {
+                        $params['max_completion_tokens'] = (int) $settings['max_tokens'];
+                    } else {
+                        $params['max_tokens'] = (int) $settings['max_tokens'];
+                        $params['temperature'] = (float) $settings['temperature'];
+                    }
+
+                    // Stream response
+                    $stream = OpenAI::chat()->createStreamed($params);
+
+                    foreach ($stream as $response) {
+                        // Skip empty chunks
+                        if (isset($response->choices[0]->delta->content)) {
+                            $chunk = $response->choices[0]->delta->content;
+                            if ($chunk !== null && $chunk !== '') {
+                                $fullContent .= $chunk;
+                                $this->sendSSE('content', ['text' => $chunk]);
+                            }
+                        }
+
+                        if (isset($response->usage)) {
+                            $tokensInput = $response->usage->promptTokens ?? 0;
+                            $tokensOutput = $response->usage->completionTokens ?? 0;
+                        }
                     }
                 }
 
