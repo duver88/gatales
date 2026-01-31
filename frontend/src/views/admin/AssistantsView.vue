@@ -82,6 +82,20 @@ const supportsReasoningEffort = computed(() => {
   return model.startsWith('gpt-5')
 })
 
+// Computed to check if filesAssistant has reasoning conflict (GPT-5 with reasoning enabled)
+const hasReasoningConflict = computed(() => {
+  if (!filesAssistant.value) return false
+  const model = filesAssistant.value.model || ''
+  const reasoningEffort = filesAssistant.value.reasoning_effort || 'minimal'
+  // GPT-5 with any reasoning effort conflicts with Knowledge Base
+  return model.startsWith('gpt-5') && reasoningEffort !== 'none'
+})
+
+// Computed to check if filesAssistant already has Knowledge Base enabled
+const hasKnowledgeBaseActive = computed(() => {
+  return filesAssistant.value?.use_knowledge_base === true
+})
+
 // Computed for formatted total size
 const formattedTotalSize = computed(() => {
   if (!filesStats.value) return '0 bytes'
@@ -490,10 +504,15 @@ function getStatusText(status) {
                 <input v-model.number="formData.max_tokens" type="number" min="100" max="16000" class="input-field" />
                 <p class="text-xs text-gatales-text-secondary mt-1">Maximo de tokens en la respuesta</p>
               </div>
-              <!-- Reasoning Effort (GPT-5 only) -->
+              <!-- Reasoning Effort (GPT-5 only) - disabled if Knowledge Base is active -->
               <div v-if="supportsReasoningEffort" class="sm:col-span-2">
                 <label class="block text-sm font-medium text-gatales-text-secondary mb-1">Reasoning Effort (Velocidad vs Calidad)</label>
-                <select v-model="formData.reasoning_effort" class="input-field">
+                <select
+                  v-model="formData.reasoning_effort"
+                  class="input-field"
+                  :disabled="formData.use_knowledge_base"
+                  :class="{ 'opacity-50 cursor-not-allowed': formData.use_knowledge_base }"
+                >
                   <option v-for="(label, value) in reasoningEffortOptions" :key="value" :value="value">
                     {{ label }}
                   </option>
@@ -502,7 +521,7 @@ function getStatusText(status) {
                   Controla el nivel de razonamiento de GPT-5. <span class="text-yellow-400">minimal = más rápido</span>, high = mejor calidad
                 </p>
                 <p v-if="formData.use_knowledge_base" class="text-xs text-orange-400 mt-1">
-                  ⚠️ Con Knowledge Base activado, este parámetro NO se aplica (conflicto con file_search)
+                  ⚠️ Knowledge Base activo: Reasoning Effort deshabilitado (no son compatibles)
                 </p>
               </div>
               <div>
@@ -689,6 +708,10 @@ function getStatusText(status) {
               <h3 class="text-sm font-medium text-gatales-text">Habilitar Base de Conocimientos</h3>
               <p class="text-xs text-gatales-text-secondary mt-1">
                 Permite subir archivos (PDF, DOCX, TXT, etc.) que el asistente usara para responder preguntas
+              </p>
+              <!-- Warning if reasoning is active -->
+              <p v-if="hasReasoningConflict && !hasKnowledgeBaseActive" class="text-xs text-orange-400 mt-2">
+                ⚠️ Este asistente usa GPT-5 con Reasoning Effort activo. Si activas Knowledge Base, el Reasoning se desactivara automaticamente.
               </p>
             </div>
             <button

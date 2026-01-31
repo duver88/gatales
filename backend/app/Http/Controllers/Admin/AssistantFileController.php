@@ -127,16 +127,32 @@ class AssistantFileController extends Controller
     public function enableKnowledgeBase(Assistant $assistant): JsonResponse
     {
         try {
-            // Enable knowledge base flag
-            $assistant->update(['use_knowledge_base' => true]);
+            // Enable knowledge base flag and disable reasoning (they conflict)
+            // GPT-5 reasoning_effort is not compatible with file_search tools
+            $updateData = ['use_knowledge_base' => true];
+            $reasoningDisabled = false;
+
+            // If this is a GPT-5 model, set reasoning_effort to 'none' to avoid conflict
+            if (str_starts_with($assistant->model, 'gpt-5') && $assistant->reasoning_effort !== 'none') {
+                $updateData['reasoning_effort'] = 'none';
+                $reasoningDisabled = true;
+            }
+
+            $assistant->update($updateData);
 
             // Create or update OpenAI assistant with file_search
             $this->assistantService->syncAssistant($assistant);
 
+            $message = 'Base de conocimientos habilitada';
+            if ($reasoningDisabled) {
+                $message .= ' (Reasoning Effort desactivado automaticamente)';
+            }
+
             return response()->json([
                 'success' => true,
-                'message' => 'Base de conocimientos habilitada',
+                'message' => $message,
                 'assistant' => $assistant->fresh(),
+                'reasoning_disabled' => $reasoningDisabled,
             ]);
         } catch (\Exception $e) {
             return response()->json([
