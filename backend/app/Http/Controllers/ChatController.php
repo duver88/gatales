@@ -442,6 +442,7 @@ class ChatController extends Controller
         $state->errorMessage = null;
         $state->rawResponse = '';
         $state->eventTypes = []; // Track all event types received
+        $state->debugEvents = []; // Store sample of each event type for debugging
 
         $ch = curl_init('https://api.openai.com/v1/responses');
 
@@ -475,7 +476,13 @@ class ChatController extends Controller
 
                         // Track event types for debugging
                         if (isset($event['type'])) {
-                            $state->eventTypes[] = $event['type'];
+                            $eventType = $event['type'];
+                            $state->eventTypes[] = $eventType;
+
+                            // Store first occurrence of each event type for debugging
+                            if (!isset($state->debugEvents[$eventType])) {
+                                $state->debugEvents[$eventType] = json_encode($event, JSON_UNESCAPED_UNICODE);
+                            }
                         }
 
                         // Check for API errors
@@ -493,26 +500,43 @@ class ChatController extends Controller
                         if ($eventType === 'response.output_text.delta' && isset($event['delta'])) {
                             $delta = $event['delta'];
                         }
+                        // 1b. Also check for text delta in different formats
+                        elseif ($eventType === 'response.text.delta' && isset($event['delta'])) {
+                            $delta = $event['delta'];
+                        }
                         // 2. Content part delta
                         elseif ($eventType === 'response.content_part.delta' && isset($event['delta']['text'])) {
                             $delta = $event['delta']['text'];
                         }
+                        // 2b. Content part added - might contain initial text
+                        elseif ($eventType === 'response.content_part.added' && isset($event['part']['text'])) {
+                            $delta = $event['part']['text'];
+                        }
                         // 3. Output item done - extract full text from completed item
                         elseif ($eventType === 'response.output_item.done' && isset($event['item'])) {
                             $item = $event['item'];
-                            // Check for text content in the item
-                            if (isset($item['content']) && is_array($item['content'])) {
-                                foreach ($item['content'] as $content) {
-                                    if (isset($content['text'])) {
-                                        $delta = $content['text'];
-                                        break;
+                            $itemType = $item['type'] ?? 'unknown';
+
+                            // Only extract text from message items, not file_search_call items
+                            if ($itemType === 'message' || $itemType === 'text') {
+                                // Check for text content in the item
+                                if (isset($item['content']) && is_array($item['content'])) {
+                                    foreach ($item['content'] as $content) {
+                                        if (isset($content['text'])) {
+                                            $delta = $content['text'];
+                                            break;
+                                        }
                                     }
                                 }
+                                // Also check for direct text in output
+                                if ($delta === null && isset($item['text'])) {
+                                    $delta = $item['text'];
+                                }
                             }
-                            // Also check for direct text in output
-                            if ($delta === null && isset($item['text'])) {
-                                $delta = $item['text'];
-                            }
+                        }
+                        // 3b. Response output_text.done - full text at end
+                        elseif ($eventType === 'response.output_text.done' && isset($event['text'])) {
+                            $delta = $event['text'];
                         }
                         // 4. Content part done - extract text
                         elseif ($eventType === 'response.content_part.done' && isset($event['part']['text'])) {
@@ -568,12 +592,17 @@ class ChatController extends Controller
             'content_length' => strlen($state->fullContent),
             'content_preview' => substr($state->fullContent, 0, 200),
             'event_types_received' => $uniqueEventTypes,
-            'raw_response_length' => strlen($state->rawResponse),
-            'raw_response_preview' => substr($state->rawResponse, 0, 1000),
             'model' => $assistant->model,
             'tokens_input' => $state->tokensInput,
             'tokens_output' => $state->tokensOutput,
         ]);
+
+        // Log debug events separately for better visibility
+        if (empty($state->fullContent)) {
+            Log::warning('No content extracted - dumping event samples', [
+                'events' => $state->debugEvents,
+            ]);
+        }
 
         // Copy state back
         $fullContent = $state->fullContent;
