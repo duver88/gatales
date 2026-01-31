@@ -192,67 +192,18 @@ class AdminConversationController extends Controller
                 })
                 ->toArray();
 
-            // Check if using Assistants API
-            if ($assistant->usesAssistantsApi()) {
-                // Get or create thread for this conversation
-                if (!$conversation->openai_thread_id) {
-                    $thread = OpenAI::threads()->create([]);
-                    $conversation->update(['openai_thread_id' => $thread->id]);
-                    $conversation->refresh();
-                }
+            // Check if using Responses API (knowledge base enabled)
+            if ($assistant->usesResponsesApi()) {
+                // Use the OpenAIAssistantService for Responses API
+                $response = $this->assistantService->sendMessageForTest(
+                    $validated['message'],
+                    $assistant,
+                    $context
+                );
 
-                // Add message to thread
-                OpenAI::threads()->messages()->create($conversation->openai_thread_id, [
-                    'role' => 'user',
-                    'content' => $validated['message'],
-                ]);
-
-                // Run the assistant
-                $runParams = [
-                    'assistant_id' => $assistant->openai_assistant_id,
-                    'max_completion_tokens' => (int) $assistant->max_tokens,
-                ];
-
-                if (!str_starts_with($model, 'o1') && !str_starts_with($model, 'gpt-5')) {
-                    $runParams['temperature'] = (float) $assistant->temperature;
-                }
-
-                $run = OpenAI::threads()->runs()->create($conversation->openai_thread_id, $runParams);
-
-                // Wait for completion
-                $maxAttempts = 60;
-                $attempts = 0;
-                while (in_array($run->status, ['queued', 'in_progress', 'requires_action'])) {
-                    if ($attempts >= $maxAttempts) {
-                        throw new \RuntimeException('Timeout');
-                    }
-                    sleep(1);
-                    $run = OpenAI::threads()->runs()->retrieve($conversation->openai_thread_id, $run->id);
-                    $attempts++;
-                }
-
-                if ($run->status !== 'completed') {
-                    throw new \RuntimeException('Error: ' . $run->status);
-                }
-
-                // Get response
-                $messages = OpenAI::threads()->messages()->list($conversation->openai_thread_id, [
-                    'limit' => 1,
-                    'order' => 'desc',
-                ]);
-
-                $content = '';
-                if (!empty($messages->data)) {
-                    $lastMessage = $messages->data[0];
-                    foreach ($lastMessage->content as $contentBlock) {
-                        if ($contentBlock->type === 'text') {
-                            $content .= $contentBlock->text->value;
-                        }
-                    }
-                }
-
-                $tokensInput = $run->usage?->promptTokens ?? 0;
-                $tokensOutput = $run->usage?->completionTokens ?? 0;
+                $content = $response['response'];
+                $tokensInput = $response['usage']['prompt_tokens'] ?? 0;
+                $tokensOutput = $response['usage']['completion_tokens'] ?? 0;
                 $usedKnowledgeBase = true;
             } else {
                 // Use Chat Completions API
