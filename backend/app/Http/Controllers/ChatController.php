@@ -456,6 +456,7 @@ class ChatController extends Controller
         $state->rawResponse = '';
         $state->eventTypes = []; // Track all event types received
         $state->debugEvents = []; // Store sample of each event type for debugging
+        $state->receivedDeltas = false; // Track if we received streaming deltas
 
         $ch = curl_init('https://api.openai.com/v1/responses');
 
@@ -510,22 +511,32 @@ class ChatController extends Controller
                         $eventType = $event['type'] ?? null;
 
                         // 1. Delta streaming events (preferred for real-time)
+                        // These are the incremental chunks we want for streaming
                         if ($eventType === 'response.output_text.delta' && isset($event['delta'])) {
                             $delta = $event['delta'];
+                            $state->receivedDeltas = true;
                         }
                         // 1b. Also check for text delta in different formats
                         elseif ($eventType === 'response.text.delta' && isset($event['delta'])) {
                             $delta = $event['delta'];
+                            $state->receivedDeltas = true;
                         }
                         // 2. Content part delta
                         elseif ($eventType === 'response.content_part.delta' && isset($event['delta']['text'])) {
                             $delta = $event['delta']['text'];
+                            $state->receivedDeltas = true;
                         }
-                        // 2b. Content part added - might contain initial text
-                        elseif ($eventType === 'response.content_part.added' && isset($event['part']['text'])) {
+                        // 2b. Content part added - might contain initial text (only if no deltas yet)
+                        elseif ($eventType === 'response.content_part.added' && isset($event['part']['text']) && !$state->receivedDeltas) {
                             $delta = $event['part']['text'];
                         }
-                        // 3. Output item done - extract full text from completed item
+                        // SKIP "done" events if we already received streaming deltas
+                        // These events contain the FULL text which would duplicate what we already streamed
+                        elseif ($state->receivedDeltas) {
+                            // Already received deltas, skip full-text events to avoid duplication
+                            $delta = null;
+                        }
+                        // 3. Output item done - ONLY use as fallback if no deltas received
                         elseif ($eventType === 'response.output_item.done' && isset($event['item'])) {
                             $item = $event['item'];
                             $itemType = $item['type'] ?? 'unknown';
@@ -561,28 +572,29 @@ class ChatController extends Controller
                                 }
                             }
                         }
-                        // 3b. Response output_text.done - full text at end
+                        // 3b. Response output_text.done - ONLY use as fallback if no deltas received
                         elseif ($eventType === 'response.output_text.done' && isset($event['text'])) {
                             $delta = $event['text'];
                         }
-                        // 4. Content part done - extract text
+                        // 4. Content part done - ONLY use as fallback if no deltas received
                         elseif ($eventType === 'response.content_part.done' && isset($event['part']['text'])) {
                             $delta = $event['part']['text'];
                         }
                         // 5. Fallback: direct delta string
                         elseif (isset($event['delta']) && is_string($event['delta'])) {
                             $delta = $event['delta'];
+                            $state->receivedDeltas = true;
                         }
 
-                        // Log incomplete response details and try to extract content
+                        // Log incomplete response details
                         if (($eventType === 'response.incomplete' || $eventType === 'response.completed') && isset($event['response'])) {
                             if (isset($event['response']['incomplete_details'])) {
                                 Log::warning('OpenAI response incomplete', [
                                     'details' => $event['response']['incomplete_details'],
                                 ]);
                             }
-                            // Try to extract text from output in the response
-                            if ($delta === null && isset($event['response']['output']) && is_array($event['response']['output'])) {
+                            // ONLY try to extract text if we didn't receive any deltas (fallback)
+                            if (!$state->receivedDeltas && $delta === null && isset($event['response']['output']) && is_array($event['response']['output'])) {
                                 foreach ($event['response']['output'] as $output) {
                                     // Check for message type output
                                     if (isset($output['type']) && $output['type'] === 'message' && isset($output['content'])) {
