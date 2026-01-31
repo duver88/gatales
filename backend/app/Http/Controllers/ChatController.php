@@ -427,10 +427,12 @@ class ChatController extends Controller
             'stream' => true,
         ];
 
-        // Add reasoning effort for GPT-5 models
+        // Add reasoning effort for GPT-5 models (ONLY when NOT using file_search)
+        // The reasoning parameter may conflict with file_search tools
         // Options: none, minimal, low, medium, high, xhigh
         // minimal = fastest response, high = best quality
-        if (str_starts_with($assistant->model, 'gpt-5')) {
+        $hasFileSearch = $assistant->use_knowledge_base && $assistant->openai_vector_store_id;
+        if (str_starts_with($assistant->model, 'gpt-5') && !$hasFileSearch) {
             $reasoningEffort = $assistant->reasoning_effort ?? 'minimal';
             $params['reasoning'] = [
                 'effort' => $reasoningEffort,
