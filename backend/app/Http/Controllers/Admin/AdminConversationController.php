@@ -351,17 +351,86 @@ class AdminConversationController extends Controller
                 $tokensOutput = 0;
 
                 if ($usesResponsesApi) {
-                    // Use Responses API streaming
-                    $stream = $this->assistantService->sendMessageStreamedForTest($message, $assistant, $context);
+                    // Use Responses API with direct cURL streaming for real-time output
+                    $apiKey = config('openai.api_key');
 
-                    foreach ($stream as $chunk) {
-                        if ($chunk['type'] === 'content') {
-                            $fullContent .= $chunk['content'];
-                            $this->sendSSE('content', ['text' => $chunk['content']]);
-                        } elseif ($chunk['type'] === 'done') {
-                            $tokensInput = $chunk['tokens_input'] ?? 0;
-                            $tokensOutput = $chunk['tokens_output'] ?? 0;
-                        }
+                    // Build input from context
+                    $input = $context;
+                    $input[] = ['role' => 'user', 'content' => $message];
+
+                    $params = [
+                        'model' => $assistant->model,
+                        'instructions' => $assistant->system_prompt,
+                        'input' => $input,
+                        'max_output_tokens' => (int) $assistant->max_tokens,
+                        'stream' => true,
+                    ];
+
+                    // Add file_search if knowledge base enabled
+                    if ($assistant->use_knowledge_base && $assistant->openai_vector_store_id) {
+                        $params['tools'] = [
+                            [
+                                'type' => 'file_search',
+                                'vector_store_ids' => [$assistant->openai_vector_store_id],
+                            ],
+                        ];
+                    }
+
+                    $ch = curl_init('https://api.openai.com/v1/responses');
+                    $buffer = '';
+
+                    curl_setopt_array($ch, [
+                        CURLOPT_POST => true,
+                        CURLOPT_POSTFIELDS => json_encode($params),
+                        CURLOPT_HTTPHEADER => [
+                            'Authorization: Bearer ' . $apiKey,
+                            'Content-Type: application/json',
+                            'Accept: text/event-stream',
+                        ],
+                        CURLOPT_RETURNTRANSFER => false,
+                        CURLOPT_TIMEOUT => 300,
+                        CURLOPT_CONNECTTIMEOUT => 30,
+                        CURLOPT_WRITEFUNCTION => function($ch, $data) use (&$fullContent, &$tokensInput, &$tokensOutput, &$buffer) {
+                            $buffer .= $data;
+
+                            while (($pos = strpos($buffer, "\n")) !== false) {
+                                $line = substr($buffer, 0, $pos);
+                                $buffer = substr($buffer, $pos + 1);
+                                $line = trim($line);
+
+                                if (empty($line) || $line === 'data: [DONE]') continue;
+
+                                if (str_starts_with($line, 'data: ')) {
+                                    $event = json_decode(substr($line, 6), true);
+                                    if (!$event) continue;
+
+                                    // Handle content delta
+                                    if (isset($event['type']) && $event['type'] === 'response.output_text.delta' && isset($event['delta'])) {
+                                        $fullContent .= $event['delta'];
+                                        echo "event: content\n";
+                                        echo "data: " . json_encode(['text' => $event['delta']]) . "\n\n";
+                                        if (ob_get_level()) ob_flush();
+                                        flush();
+                                    }
+
+                                    // Handle completion
+                                    if (isset($event['type']) && $event['type'] === 'response.completed' && isset($event['response'])) {
+                                        $tokensInput = $event['response']['usage']['input_tokens'] ?? 0;
+                                        $tokensOutput = $event['response']['usage']['output_tokens'] ?? 0;
+                                    }
+                                }
+                            }
+                            return strlen($data);
+                        },
+                    ]);
+
+                    curl_exec($ch);
+                    $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+                    $curlError = curl_error($ch);
+                    curl_close($ch);
+
+                    if ($httpCode !== 200) {
+                        throw new \Exception("API error: HTTP $httpCode - $curlError");
                     }
                 } else {
                     // Use Chat Completions API streaming
