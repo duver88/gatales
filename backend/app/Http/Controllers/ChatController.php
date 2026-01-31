@@ -517,20 +517,34 @@ class ChatController extends Controller
                             $item = $event['item'];
                             $itemType = $item['type'] ?? 'unknown';
 
-                            // Only extract text from message items, not file_search_call items
-                            if ($itemType === 'message' || $itemType === 'text') {
-                                // Check for text content in the item
+                            // Skip file_search_call items, extract from everything else
+                            if ($itemType !== 'file_search_call' && $itemType !== 'function_call') {
+                                // Check for text content in the item's content array
                                 if (isset($item['content']) && is_array($item['content'])) {
                                     foreach ($item['content'] as $content) {
                                         if (isset($content['text'])) {
                                             $delta = $content['text'];
                                             break;
                                         }
+                                        // Also check for text type content
+                                        if (isset($content['type']) && $content['type'] === 'output_text' && isset($content['text'])) {
+                                            $delta = $content['text'];
+                                            break;
+                                        }
                                     }
                                 }
-                                // Also check for direct text in output
+                                // Check for direct text in output
                                 if ($delta === null && isset($item['text'])) {
                                     $delta = $item['text'];
+                                }
+                                // Check for output array (Responses API format)
+                                if ($delta === null && isset($item['output']) && is_array($item['output'])) {
+                                    foreach ($item['output'] as $output) {
+                                        if (isset($output['text'])) {
+                                            $delta = $output['text'];
+                                            break;
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -547,11 +561,32 @@ class ChatController extends Controller
                             $delta = $event['delta'];
                         }
 
-                        // Log incomplete response details
-                        if ($eventType === 'response.incomplete' && isset($event['response']['incomplete_details'])) {
-                            Log::warning('OpenAI response incomplete', [
-                                'details' => $event['response']['incomplete_details'],
-                            ]);
+                        // Log incomplete response details and try to extract content
+                        if (($eventType === 'response.incomplete' || $eventType === 'response.completed') && isset($event['response'])) {
+                            if (isset($event['response']['incomplete_details'])) {
+                                Log::warning('OpenAI response incomplete', [
+                                    'details' => $event['response']['incomplete_details'],
+                                ]);
+                            }
+                            // Try to extract text from output in the response
+                            if ($delta === null && isset($event['response']['output']) && is_array($event['response']['output'])) {
+                                foreach ($event['response']['output'] as $output) {
+                                    // Check for message type output
+                                    if (isset($output['type']) && $output['type'] === 'message' && isset($output['content'])) {
+                                        foreach ($output['content'] as $content) {
+                                            if (isset($content['text'])) {
+                                                $delta = $content['text'];
+                                                break 2;
+                                            }
+                                        }
+                                    }
+                                    // Check for direct text in output
+                                    if (isset($output['text'])) {
+                                        $delta = $output['text'];
+                                        break;
+                                    }
+                                }
+                            }
                         }
 
                         if ($delta !== null && $delta !== '') {
@@ -599,8 +634,13 @@ class ChatController extends Controller
 
         // Log debug events separately for better visibility
         if (empty($state->fullContent)) {
+            // Truncate each event to avoid huge logs
+            $truncatedEvents = [];
+            foreach ($state->debugEvents as $type => $json) {
+                $truncatedEvents[$type] = strlen($json) > 2000 ? substr($json, 0, 2000) . '...[TRUNCATED]' : $json;
+            }
             Log::warning('No content extracted - dumping event samples', [
-                'events' => $state->debugEvents,
+                'events' => $truncatedEvents,
             ]);
         }
 
