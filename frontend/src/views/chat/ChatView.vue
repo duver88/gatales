@@ -561,7 +561,7 @@ async function handleDeleteAvatar() {
         @send="handleSendMessage"
         @stop="handleStopStreaming"
         :disabled="chatStore.isThinking"
-        :isStreaming="chatStore.isStreaming"
+        :isStreaming="chatStore.isStreaming || chatStore.isThinking"
       />
     </div>
 
