@@ -212,6 +212,10 @@ watch(() => chatStore.isThinking, (isThinking) => {
   }
 })
 
+function handleStopStreaming() {
+  chatStore.stopStreaming()
+}
+
 async function handleClearHistory() {
   if (confirm('?Estas seguro de que quieres limpiar el historial de esta conversacion? Esta accion no se puede deshacer.')) {
     await chatStore.clearHistory()
@@ -555,7 +559,9 @@ async function handleDeleteAvatar() {
       <!-- Input Area -->
       <ChatInput
         @send="handleSendMessage"
-        :disabled="chatStore.isSending"
+        @stop="handleStopStreaming"
+        :disabled="chatStore.isThinking"
+        :isStreaming="chatStore.isStreaming"
       />
     </div>
 

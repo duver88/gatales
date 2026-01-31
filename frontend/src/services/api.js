@@ -73,6 +73,9 @@ export const authApi = {
   deleteAvatar: () => api.delete('/auth/avatar'),
 }
 
+// Active stream controller for cancellation
+let activeStreamController = null
+
 // Chat API (legacy endpoints for backward compatibility)
 export const chatApi = {
   getMessages: () => api.get('/chat/messages'),
@@ -96,14 +99,26 @@ export const chatApi = {
   sendConversationMessage: (id, message) => api.post(`/conversations/${id}/messages`, { message }),
   clearConversationMessages: (id) => api.delete(`/conversations/${id}/messages`),
 
+  // Stop active stream
+  stopStream: () => {
+    if (activeStreamController) {
+      activeStreamController.abort()
+      activeStreamController = null
+      return true
+    }
+    return false
+  },
+
   // Streaming message (SSE)
   sendConversationMessageStream: async (id, message, onChunk, onDone, onError) => {
     const token = localStorage.getItem('auth_token')
     const baseURL = import.meta.env.VITE_API_URL
     let receivedDone = false
+    let wasCancelled = false
 
     // AbortController with 5 minute timeout for GPT-5 with knowledge base
     const controller = new AbortController()
+    activeStreamController = controller // Store for cancellation
     const timeoutId = setTimeout(() => controller.abort(), 300000) // 5 minutes
 
     try {
@@ -165,18 +180,25 @@ export const chatApi = {
       }
 
       // Si el stream terminó sin evento 'done', llamar onDone con datos mínimos
-      if (!receivedDone) {
+      if (!receivedDone && !wasCancelled) {
         console.warn('Stream ended without done event')
         onDone({ message_id: null, tokens_used: 0, tokens_balance: null, conversation: null })
       }
     } catch (error) {
       if (error.name === 'AbortError') {
-        onError({ message: 'La solicitud tardó demasiado. Por favor, intenta de nuevo.' })
+        // Check if it was manually cancelled or timed out
+        if (activeStreamController === null) {
+          wasCancelled = true
+          onDone({ message_id: null, tokens_used: 0, tokens_balance: null, conversation: null, cancelled: true })
+        } else {
+          onError({ message: 'La solicitud tardó demasiado. Por favor, intenta de nuevo.' })
+        }
       } else {
         onError({ message: error.message })
       }
     } finally {
       clearTimeout(timeoutId)
+      activeStreamController = null
     }
   },
 }

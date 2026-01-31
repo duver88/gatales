@@ -128,6 +128,26 @@ export const useChatStore = defineStore('chat', () => {
   const isStreaming = ref(false)
   const isThinking = ref(false) // Shows "thinking" before streaming starts
 
+  /**
+   * Stop current streaming response
+   */
+  function stopStreaming() {
+    const stopped = chatApi.stopStream()
+    if (stopped) {
+      isStreaming.value = false
+      isThinking.value = false
+      isSending.value = false
+      // Mark the streaming message as complete (keep partial content)
+      const streamingMsg = messages.value.find(m => m.isStreaming)
+      if (streamingMsg) {
+        streamingMsg.isStreaming = false
+        streamingMsg.isThinking = false
+        streamingMsg.content = streamingContent.value || '(Respuesta cancelada)'
+      }
+    }
+    return stopped
+  }
+
   async function sendMessage(content, conversationId = null) {
     if (!content.trim() || isSending.value) return
 
@@ -390,6 +410,7 @@ export const useChatStore = defineStore('chat', () => {
     fetchMessages,
     sendMessage,
     sendMessageStream,
+    stopStreaming,
     clearHistory,
     clearError,
     fetchAvailableAssistants,

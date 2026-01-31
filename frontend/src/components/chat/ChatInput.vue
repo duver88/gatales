@@ -6,9 +6,13 @@ const props = defineProps({
     type: Boolean,
     default: false,
   },
+  isStreaming: {
+    type: Boolean,
+    default: false,
+  },
 })
 
-const emit = defineEmits(['send'])
+const emit = defineEmits(['send', 'stop'])
 
 const message = ref('')
 const textarea = ref(null)
@@ -61,7 +65,25 @@ function autoResize() {
                  disabled:opacity-50 disabled:cursor-not-allowed"
         />
 
+        <!-- Stop button (shown when streaming) -->
         <button
+          v-if="isStreaming"
+          type="button"
+          @click="emit('stop')"
+          class="absolute right-1.5 sm:right-2 bottom-1.5 sm:bottom-2 p-2 rounded-lg
+                 bg-red-500 text-white
+                 hover:bg-red-600 active:scale-95
+                 transition-all touch-manipulation"
+          title="Detener respuesta"
+        >
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 6h12v12H6z" />
+          </svg>
+        </button>
+
+        <!-- Send button (hidden when streaming) -->
+        <button
+          v-else
           type="submit"
           :disabled="!canSend"
           class="absolute right-1.5 sm:right-2 bottom-1.5 sm:bottom-2 p-2 rounded-lg
