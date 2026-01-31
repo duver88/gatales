@@ -485,18 +485,49 @@ class ChatController extends Controller
                             continue;
                         }
 
-                        // Handle content delta - multiple formats for compatibility
+                        // Handle content - multiple event types for Responses API
                         $delta = null;
-                        if (isset($event['type'])) {
-                            if ($event['type'] === 'response.output_text.delta' && isset($event['delta'])) {
-                                $delta = $event['delta'];
-                            } elseif ($event['type'] === 'content_block_delta' && isset($event['delta']['text'])) {
-                                $delta = $event['delta']['text'];
+                        $eventType = $event['type'] ?? null;
+
+                        // 1. Delta streaming events (preferred for real-time)
+                        if ($eventType === 'response.output_text.delta' && isset($event['delta'])) {
+                            $delta = $event['delta'];
+                        }
+                        // 2. Content part delta
+                        elseif ($eventType === 'response.content_part.delta' && isset($event['delta']['text'])) {
+                            $delta = $event['delta']['text'];
+                        }
+                        // 3. Output item done - extract full text from completed item
+                        elseif ($eventType === 'response.output_item.done' && isset($event['item'])) {
+                            $item = $event['item'];
+                            // Check for text content in the item
+                            if (isset($item['content']) && is_array($item['content'])) {
+                                foreach ($item['content'] as $content) {
+                                    if (isset($content['text'])) {
+                                        $delta = $content['text'];
+                                        break;
+                                    }
+                                }
+                            }
+                            // Also check for direct text in output
+                            if ($delta === null && isset($item['text'])) {
+                                $delta = $item['text'];
                             }
                         }
-                        // Fallback: direct delta string
-                        if ($delta === null && isset($event['delta']) && is_string($event['delta'])) {
+                        // 4. Content part done - extract text
+                        elseif ($eventType === 'response.content_part.done' && isset($event['part']['text'])) {
+                            $delta = $event['part']['text'];
+                        }
+                        // 5. Fallback: direct delta string
+                        elseif (isset($event['delta']) && is_string($event['delta'])) {
                             $delta = $event['delta'];
+                        }
+
+                        // Log incomplete response details
+                        if ($eventType === 'response.incomplete' && isset($event['response']['incomplete_details'])) {
+                            Log::warning('OpenAI response incomplete', [
+                                'details' => $event['response']['incomplete_details'],
+                            ]);
                         }
 
                         if ($delta !== null && $delta !== '') {
@@ -507,10 +538,12 @@ class ChatController extends Controller
                             flush();
                         }
 
-                        // Handle completion
-                        if (isset($event['type']) && $event['type'] === 'response.completed' && isset($event['response'])) {
-                            $state->tokensInput = $event['response']['usage']['input_tokens'] ?? 0;
-                            $state->tokensOutput = $event['response']['usage']['output_tokens'] ?? 0;
+                        // Handle completion (both complete and incomplete responses)
+                        if ($eventType === 'response.completed' || $eventType === 'response.done' || $eventType === 'response.incomplete') {
+                            if (isset($event['response']['usage'])) {
+                                $state->tokensInput = $event['response']['usage']['input_tokens'] ?? 0;
+                                $state->tokensOutput = $event['response']['usage']['output_tokens'] ?? 0;
+                            }
                         }
                     }
                 }

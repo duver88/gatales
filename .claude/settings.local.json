@@ -20,7 +20,10 @@
       "Bash(git push)",
       "WebFetch(domain:github.com)",
       "WebFetch(domain:raw.githubusercontent.com)",
-      "WebFetch(domain:demo.tailadmin.com)"
+      "WebFetch(domain:demo.tailadmin.com)",
+      "Bash(git push:*)",
+      "WebFetch(domain:platform.openai.com)",
+      "WebFetch(domain:cookbook.openai.com)"
     ]
   }
 }
