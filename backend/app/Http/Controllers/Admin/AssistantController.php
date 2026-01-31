@@ -25,6 +25,7 @@ class AssistantController extends Controller
             'success' => true,
             'assistants' => $assistants,
             'available_models' => Assistant::getAvailableModels(),
+            'reasoning_effort_options' => Assistant::getReasoningEffortOptions(),
         ]);
     }
 
@@ -51,6 +52,7 @@ class AssistantController extends Controller
             'description' => 'nullable|string',
             'is_active' => 'boolean',
             'model' => 'required|string',
+            'reasoning_effort' => 'string|in:none,minimal,low,medium,high,xhigh',
             'system_prompt' => 'required|string',
             'temperature' => 'numeric|min:0|max:2',
             'max_tokens' => 'integer|min:100|max:16000',
@@ -101,6 +103,7 @@ class AssistantController extends Controller
             'description' => 'nullable|string',
             'is_active' => 'sometimes|boolean',
             'model' => 'sometimes|string',
+            'reasoning_effort' => 'sometimes|string|in:none,minimal,low,medium,high,xhigh',
             'system_prompt' => 'sometimes|string',
             'temperature' => 'sometimes|numeric|min:0|max:2',
             'max_tokens' => 'sometimes|integer|min:100|max:16000',

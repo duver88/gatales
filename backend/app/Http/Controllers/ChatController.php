@@ -427,6 +427,16 @@ class ChatController extends Controller
             'stream' => true,
         ];
 
+        // Add reasoning effort for GPT-5 models
+        // Options: none, minimal, low, medium, high, xhigh
+        // minimal = fastest response, high = best quality
+        if (str_starts_with($assistant->model, 'gpt-5')) {
+            $reasoningEffort = $assistant->reasoning_effort ?? 'minimal';
+            $params['reasoning'] = [
+                'effort' => $reasoningEffort,
+            ];
+        }
+
         // Add file_search if knowledge base enabled
         if ($assistant->use_knowledge_base && $assistant->openai_vector_store_id) {
             $params['tools'] = [
@@ -440,6 +450,7 @@ class ChatController extends Controller
         // Log request for debugging
         Log::info('OpenAI Responses API request', [
             'model' => $assistant->model,
+            'reasoning_effort' => $assistant->reasoning_effort ?? 'minimal',
             'has_knowledge_base' => $assistant->use_knowledge_base,
             'vector_store_id' => $assistant->openai_vector_store_id,
             'input_messages_count' => count($input),

@@ -16,6 +16,7 @@ class Assistant extends Model
         'is_active',
         'is_default',
         'model',
+        'reasoning_effort',
         'system_prompt',
         'temperature',
         'max_tokens',
@@ -183,6 +184,21 @@ class Assistant extends Model
             'o1' => 'o1 (Razonamiento avanzado)',
             'o1-mini' => 'o1-mini (Razonamiento rapido)',
             'o1-preview' => 'o1-preview',
+        ];
+    }
+
+    /**
+     * Get available reasoning effort options (for GPT-5 models)
+     */
+    public static function getReasoningEffortOptions(): array
+    {
+        return [
+            'none' => 'None (Sin razonamiento - Solo GPT-5.1+)',
+            'minimal' => 'Minimal (Mas rapido - Recomendado)',
+            'low' => 'Low (Rapido)',
+            'medium' => 'Medium (Balanceado)',
+            'high' => 'High (Mejor calidad)',
+            'xhigh' => 'Extra High (Maxima calidad - Solo GPT-5.2+)',
         ];
     }
 
