@@ -424,6 +424,15 @@ class ChatController extends Controller
             ];
         }
 
+        // Log request for debugging
+        Log::info('OpenAI Responses API request', [
+            'model' => $assistant->model,
+            'has_knowledge_base' => $assistant->use_knowledge_base,
+            'vector_store_id' => $assistant->openai_vector_store_id,
+            'input_messages_count' => count($input),
+            'max_output_tokens' => $params['max_output_tokens'],
+        ]);
+
         // Use object to store state
         $state = new \stdClass();
         $state->fullContent = '';
@@ -432,6 +441,7 @@ class ChatController extends Controller
         $state->buffer = '';
         $state->errorMessage = null;
         $state->rawResponse = '';
+        $state->eventTypes = []; // Track all event types received
 
         $ch = curl_init('https://api.openai.com/v1/responses');
 
@@ -462,6 +472,11 @@ class ChatController extends Controller
                         $event = json_decode($jsonStr, true);
 
                         if (!$event) continue;
+
+                        // Track event types for debugging
+                        if (isset($event['type'])) {
+                            $state->eventTypes[] = $event['type'];
+                        }
 
                         // Check for API errors
                         if (isset($event['error'])) {
@@ -509,17 +524,23 @@ class ChatController extends Controller
         $curlErrno = curl_errno($ch);
         curl_close($ch);
 
-        // Log for debugging
-        if ($httpCode !== 200 || !$success || $state->errorMessage) {
-            Log::error('OpenAI Responses API streaming failed', [
-                'http_code' => $httpCode,
-                'curl_error' => $curlError,
-                'curl_errno' => $curlErrno,
-                'api_error' => $state->errorMessage,
-                'raw_response_preview' => substr($state->rawResponse, 0, 500),
-                'model' => $assistant->model,
-            ]);
-        }
+        // ALWAYS log for debugging (to diagnose GPT-5 issues)
+        $uniqueEventTypes = array_unique($state->eventTypes);
+        Log::info('OpenAI Responses API result', [
+            'http_code' => $httpCode,
+            'success' => $success,
+            'curl_error' => $curlError ?: null,
+            'curl_errno' => $curlErrno ?: null,
+            'api_error' => $state->errorMessage,
+            'content_length' => strlen($state->fullContent),
+            'content_preview' => substr($state->fullContent, 0, 200),
+            'event_types_received' => $uniqueEventTypes,
+            'raw_response_length' => strlen($state->rawResponse),
+            'raw_response_preview' => substr($state->rawResponse, 0, 1000),
+            'model' => $assistant->model,
+            'tokens_input' => $state->tokensInput,
+            'tokens_output' => $state->tokensOutput,
+        ]);
 
         // Copy state back
         $fullContent = $state->fullContent;
