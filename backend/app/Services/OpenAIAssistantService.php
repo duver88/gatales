@@ -229,7 +229,7 @@ class OpenAIAssistantService
     }
 
     /**
-     * Stream from the OpenAI Responses API (real-time streaming)
+     * Stream from the OpenAI Responses API using cURL (more compatible with hosting environments)
      */
     private function streamResponsesApi(array $params): \Generator
     {
@@ -238,126 +238,119 @@ class OpenAIAssistantService
         // Remove null values
         $params = array_filter($params, fn($v) => $v !== null);
 
-        // Use PHP streams for real-time SSE handling
-        $context = stream_context_create([
-            'http' => [
-                'method' => 'POST',
-                'header' => [
-                    'Authorization: Bearer ' . $apiKey,
-                    'Content-Type: application/json',
-                    'Accept: text/event-stream',
-                ],
-                'content' => json_encode($params),
-                'timeout' => 120,
-                'ignore_errors' => true,
-            ],
-            'ssl' => [
-                'verify_peer' => true,
-                'verify_peer_name' => true,
-            ],
-        ]);
+        // Use cURL for better compatibility with hosting environments
+        $ch = curl_init('https://api.openai.com/v1/responses');
 
-        $stream = @fopen('https://api.openai.com/v1/responses', 'r', false, $context);
-
-        if (!$stream) {
-            throw new \RuntimeException('Could not open stream to Responses API');
-        }
-
-        // Check HTTP status from response headers
-        $meta = stream_get_meta_data($stream);
-        $httpStatus = 200;
-        if (isset($meta['wrapper_data'])) {
-            foreach ($meta['wrapper_data'] as $header) {
-                if (preg_match('/^HTTP\/\d+\.\d+\s+(\d+)/', $header, $matches)) {
-                    $httpStatus = (int) $matches[1];
-                    break;
-                }
-            }
-        }
-
-        if ($httpStatus !== 200) {
-            $errorBody = stream_get_contents($stream);
-            fclose($stream);
-            $error = json_decode($errorBody, true);
-            throw new \RuntimeException(
-                $error['error']['message'] ?? 'Error calling Responses API: ' . $httpStatus
-            );
-        }
-
+        $chunks = [];
         $tokensInput = 0;
         $tokensOutput = 0;
         $messageId = null;
         $buffer = '';
+        $errorMessage = null;
 
-        // Read stream line by line for real-time processing
-        while (!feof($stream)) {
-            $chunk = fread($stream, 1024);
-            if ($chunk === false) {
-                break;
-            }
+        // Set up cURL options with a write callback for streaming
+        curl_setopt_array($ch, [
+            CURLOPT_POST => true,
+            CURLOPT_POSTFIELDS => json_encode($params),
+            CURLOPT_HTTPHEADER => [
+                'Authorization: Bearer ' . $apiKey,
+                'Content-Type: application/json',
+                'Accept: text/event-stream',
+            ],
+            CURLOPT_RETURNTRANSFER => false,
+            CURLOPT_TIMEOUT => 120,
+            CURLOPT_CONNECTTIMEOUT => 30,
+            CURLOPT_WRITEFUNCTION => function($ch, $data) use (&$chunks, &$buffer, &$tokensInput, &$tokensOutput, &$messageId, &$errorMessage) {
+                $buffer .= $data;
 
-            $buffer .= $chunk;
+                // Process complete lines
+                while (($pos = strpos($buffer, "\n")) !== false) {
+                    $line = substr($buffer, 0, $pos);
+                    $buffer = substr($buffer, $pos + 1);
 
-            // Process complete lines
-            while (($pos = strpos($buffer, "\n")) !== false) {
-                $line = substr($buffer, 0, $pos);
-                $buffer = substr($buffer, $pos + 1);
+                    $line = trim($line);
+                    if (empty($line) || $line === 'data: [DONE]') {
+                        continue;
+                    }
 
-                $line = trim($line);
-                if (empty($line) || $line === 'data: [DONE]') {
-                    continue;
-                }
+                    if (str_starts_with($line, 'data: ')) {
+                        $json = substr($line, 6);
+                        $event = json_decode($json, true);
 
-                if (str_starts_with($line, 'data: ')) {
-                    $json = substr($line, 6);
-                    $event = json_decode($json, true);
+                        if (!$event) continue;
 
-                    if (!$event) continue;
+                        // Check for error
+                        if (isset($event['error'])) {
+                            $errorMessage = $event['error']['message'] ?? 'Unknown API error';
+                            continue;
+                        }
 
-                    // Handle different event types from Responses API
-                    if (isset($event['type'])) {
-                        switch ($event['type']) {
-                            case 'response.output_text.delta':
-                                if (isset($event['delta'])) {
-                                    yield [
-                                        'type' => 'content',
-                                        'content' => $event['delta'],
-                                    ];
-                                }
-                                break;
+                        // Handle different event types from Responses API
+                        if (isset($event['type'])) {
+                            switch ($event['type']) {
+                                case 'response.output_text.delta':
+                                    if (isset($event['delta'])) {
+                                        $chunks[] = ['type' => 'content', 'content' => $event['delta']];
+                                    }
+                                    break;
 
-                            case 'response.completed':
-                                if (isset($event['response'])) {
-                                    $messageId = $event['response']['id'] ?? null;
-                                    $tokensInput = $event['response']['usage']['input_tokens'] ?? 0;
-                                    $tokensOutput = $event['response']['usage']['output_tokens'] ?? 0;
-                                }
-                                break;
+                                case 'response.completed':
+                                    if (isset($event['response'])) {
+                                        $messageId = $event['response']['id'] ?? null;
+                                        $tokensInput = $event['response']['usage']['input_tokens'] ?? 0;
+                                        $tokensOutput = $event['response']['usage']['output_tokens'] ?? 0;
+                                    }
+                                    break;
+                            }
+                        }
+
+                        // Also check for content delta in different format
+                        if (isset($event['delta']['content'])) {
+                            $chunks[] = ['type' => 'content', 'content' => $event['delta']['content']];
+                        }
+
+                        // Check for usage info
+                        if (isset($event['usage'])) {
+                            $tokensInput = $event['usage']['input_tokens'] ?? $tokensInput;
+                            $tokensOutput = $event['usage']['output_tokens'] ?? $tokensOutput;
+                        }
+
+                        if (isset($event['id']) && !$messageId) {
+                            $messageId = $event['id'];
                         }
                     }
-
-                    // Also check for content delta in different format
-                    if (isset($event['delta']['content'])) {
-                        yield [
-                            'type' => 'content',
-                            'content' => $event['delta']['content'],
-                        ];
-                    }
-
-                    // Check for usage info
-                    if (isset($event['usage'])) {
-                        $tokensInput = $event['usage']['input_tokens'] ?? $tokensInput;
-                        $tokensOutput = $event['usage']['output_tokens'] ?? $tokensOutput;
-                    }
-
-                    if (isset($event['id']) && !$messageId) {
-                        $messageId = $event['id'];
-                    }
                 }
-            }
+
+                return strlen($data);
+            },
+        ]);
+
+        // Execute cURL request
+        $success = curl_exec($ch);
+        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $curlError = curl_error($ch);
+        curl_close($ch);
+
+        if ($errorMessage) {
+            throw new \RuntimeException($errorMessage);
         }
 
-        fclose($stream);
+        if (!$success) {
+            throw new \RuntimeException(
+                $curlError ?: "Error calling Responses API: connection failed"
+            );
+        }
+
+        if ($httpCode !== 200) {
+            throw new \RuntimeException(
+                "Error calling Responses API: HTTP $httpCode"
+            );
+        }
+
+        // Yield all collected chunks
+        foreach ($chunks as $chunk) {
+            yield $chunk;
+        }
 
         yield [
             'type' => 'done',
