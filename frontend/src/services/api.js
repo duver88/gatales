@@ -61,6 +61,16 @@ export const authApi = {
   login: (data) => api.post('/auth/login', data),
   logout: () => api.post('/auth/logout'),
   me: () => api.get('/auth/me'),
+  changePassword: (data) => api.post('/auth/change-password', data),
+  updateProfile: (data) => api.patch('/auth/profile', data),
+  uploadAvatar: (file) => {
+    const formData = new FormData()
+    formData.append('avatar', file)
+    return api.post('/auth/avatar', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    })
+  },
+  deleteAvatar: () => api.delete('/auth/avatar'),
 }
 
 // Chat API (legacy endpoints for backward compatibility)

@@ -29,6 +29,7 @@ class User extends Authenticatable
         'password_token',
         'password_token_expires_at',
         'email_verified_at',
+        'avatar_path',
     ];
 
     /**

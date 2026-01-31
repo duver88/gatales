@@ -6,6 +6,14 @@ const props = defineProps({
     type: Object,
     required: true,
   },
+  userAvatar: {
+    type: String,
+    default: null,
+  },
+  userName: {
+    type: String,
+    default: 'U',
+  },
 })
 
 const isUser = computed(() => props.message.role === 'user')
@@ -43,22 +51,32 @@ const formattedContent = computed(() => {
       <!-- Avatar -->
       <div
         :class="[
-          'w-7 h-7 sm:w-8 sm:h-8 rounded-full flex items-center justify-center shrink-0',
+          'w-7 h-7 sm:w-8 sm:h-8 rounded-full flex items-center justify-center shrink-0 overflow-hidden',
           isUser ? 'bg-gatales-input' : 'bg-gatales-accent'
         ]"
       >
-        <span v-if="isUser" class="text-gatales-text">
-          <svg class="w-4 h-4 sm:w-5 sm:h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-          </svg>
-        </span>
-        <span v-else class="text-white text-xs sm:text-sm font-medium">G</span>
+        <!-- User avatar -->
+        <template v-if="isUser">
+          <img v-if="userAvatar" :src="userAvatar" class="w-full h-full object-cover" alt="Avatar" />
+          <span v-else class="text-gatales-text text-xs sm:text-sm font-medium">
+            {{ userName.charAt(0).toUpperCase() }}
+          </span>
+        </template>
+        <!-- Assistant avatar (cat logo) -->
+        <svg v-else class="w-5 h-5 sm:w-6 sm:h-6 text-white" viewBox="0 0 100 100" fill="currentColor">
+          <!-- Cat head -->
+          <path d="M50 15 L25 35 L25 60 Q25 80 50 85 Q75 80 75 60 L75 35 Z"/>
+          <!-- Left ear -->
+          <path d="M25 35 L15 10 L35 30 Z"/>
+          <!-- Right ear -->
+          <path d="M75 35 L85 10 L65 30 Z"/>
+        </svg>
       </div>
 
       <!-- Content -->
       <div class="flex-1 min-w-0 overflow-hidden">
         <p class="text-[10px] sm:text-xs text-gatales-text-secondary mb-0.5 sm:mb-1">
-          {{ isUser ? 'Tu' : 'Gatales' }}
+          {{ isUser ? 'Tu' : 'El Cursales' }}
         </p>
         <div class="text-sm sm:text-base text-gatales-text markdown-content prose prose-invert max-w-none break-words">
           <!-- Thinking indicator -->

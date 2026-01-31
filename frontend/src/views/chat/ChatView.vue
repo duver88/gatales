@@ -4,6 +4,8 @@ import { useRouter } from 'vue-router'
 import { useAuthStore } from '../../stores/auth'
 import { useChatStore } from '../../stores/chat'
 import { useConversationsStore } from '../../stores/conversations'
+import { useThemeStore } from '../../stores/theme'
+import { authApi } from '../../services/api'
 import ChatMessage from '../../components/chat/ChatMessage.vue'
 import ChatInput from '../../components/chat/ChatInput.vue'
 import TokenIndicator from '../../components/chat/TokenIndicator.vue'
@@ -13,11 +15,30 @@ const router = useRouter()
 const authStore = useAuthStore()
 const chatStore = useChatStore()
 const conversationsStore = useConversationsStore()
+const themeStore = useThemeStore()
 
 const messagesContainer = ref(null)
 const showUserMenu = ref(false)
 const showAssistantModal = ref(false)
 const showSidebar = ref(false)
+const showPasswordModal = ref(false)
+const showAvatarModal = ref(false)
+
+// Password change form
+const passwordForm = ref({
+  current_password: '',
+  password: '',
+  password_confirmation: ''
+})
+const passwordError = ref('')
+const passwordSuccess = ref('')
+const isChangingPassword = ref(false)
+
+// Avatar form
+const avatarPreview = ref(null)
+const avatarFile = ref(null)
+const avatarError = ref('')
+const isUploadingAvatar = ref(false)
 
 // Responsive - auto show sidebar on desktop
 const isDesktop = ref(window.innerWidth >= 768)
@@ -40,7 +61,7 @@ const formattedMonthlyTokens = computed(() => {
 })
 
 const assistantName = computed(() => {
-  return chatStore.currentAssistant?.name || 'Gatales'
+  return chatStore.currentAssistant?.name || 'El Cursales'
 })
 
 const welcomeMessage = computed(() => {
@@ -211,6 +232,104 @@ function scrollToBottom() {
     }
   })
 }
+
+// Password change handlers
+function openPasswordModal() {
+  showUserMenu.value = false
+  passwordForm.value = { current_password: '', password: '', password_confirmation: '' }
+  passwordError.value = ''
+  passwordSuccess.value = ''
+  showPasswordModal.value = true
+}
+
+async function handleChangePassword() {
+  passwordError.value = ''
+  passwordSuccess.value = ''
+
+  if (passwordForm.value.password !== passwordForm.value.password_confirmation) {
+    passwordError.value = 'Las contraseñas no coinciden'
+    return
+  }
+
+  if (passwordForm.value.password.length < 8) {
+    passwordError.value = 'La contraseña debe tener al menos 8 caracteres'
+    return
+  }
+
+  isChangingPassword.value = true
+  try {
+    await authApi.changePassword(passwordForm.value)
+    passwordSuccess.value = 'Contraseña actualizada correctamente'
+    passwordForm.value = { current_password: '', password: '', password_confirmation: '' }
+    setTimeout(() => {
+      showPasswordModal.value = false
+    }, 1500)
+  } catch (e) {
+    passwordError.value = e.response?.data?.message || 'Error al cambiar la contraseña'
+  } finally {
+    isChangingPassword.value = false
+  }
+}
+
+// Avatar handlers
+function openAvatarModal() {
+  showUserMenu.value = false
+  avatarPreview.value = authStore.user?.avatar_url || null
+  avatarFile.value = null
+  avatarError.value = ''
+  showAvatarModal.value = true
+}
+
+function handleAvatarSelect(event) {
+  const file = event.target.files[0]
+  if (file) {
+    if (file.size > 2 * 1024 * 1024) {
+      avatarError.value = 'La imagen debe ser menor a 2MB'
+      return
+    }
+    if (!['image/jpeg', 'image/png', 'image/gif'].includes(file.type)) {
+      avatarError.value = 'Solo se permiten imágenes JPG, PNG o GIF'
+      return
+    }
+    avatarFile.value = file
+    avatarPreview.value = URL.createObjectURL(file)
+    avatarError.value = ''
+  }
+}
+
+async function handleUploadAvatar() {
+  if (!avatarFile.value) return
+
+  isUploadingAvatar.value = true
+  avatarError.value = ''
+  try {
+    const response = await authApi.uploadAvatar(avatarFile.value)
+    authStore.user.avatar_url = response.data.avatar_url
+    localStorage.setItem('user', JSON.stringify(authStore.user))
+    showAvatarModal.value = false
+  } catch (e) {
+    avatarError.value = e.response?.data?.message || 'Error al subir la imagen'
+  } finally {
+    isUploadingAvatar.value = false
+  }
+}
+
+async function handleDeleteAvatar() {
+  if (!confirm('¿Eliminar tu foto de perfil?')) return
+
+  isUploadingAvatar.value = true
+  try {
+    await authApi.deleteAvatar()
+    authStore.user.avatar_url = null
+    localStorage.setItem('user', JSON.stringify(authStore.user))
+    avatarPreview.value = null
+    showAvatarModal.value = false
+  } catch (e) {
+    avatarError.value = e.response?.data?.message || 'Error al eliminar la imagen'
+  } finally {
+    isUploadingAvatar.value = false
+  }
+}
 </script>
 
 <template>
@@ -249,7 +368,21 @@ function scrollToBottom() {
             </svg>
           </button>
 
-          <h1 class="text-lg sm:text-xl font-bold text-gatales-accent hidden sm:block">Gatales</h1>
+          <!-- Logo + Brand -->
+          <div class="hidden sm:flex items-center gap-2">
+            <div class="w-8 h-8 bg-gatales-accent rounded-lg flex items-center justify-center">
+              <!-- Cat head silhouette -->
+              <svg class="w-6 h-6 text-white" viewBox="0 0 100 100" fill="currentColor">
+                <!-- Cat head -->
+                <path d="M50 15 L25 35 L25 60 Q25 80 50 85 Q75 80 75 60 L75 35 Z"/>
+                <!-- Left ear -->
+                <path d="M25 35 L15 10 L35 30 Z"/>
+                <!-- Right ear -->
+                <path d="M75 35 L85 10 L65 30 Z"/>
+              </svg>
+            </div>
+            <h1 class="text-lg sm:text-xl font-bold text-gatales-accent">El Cursales</h1>
+          </div>
 
           <!-- Conversation Title -->
           <div class="flex items-center gap-2">
@@ -287,8 +420,9 @@ function scrollToBottom() {
               @click="showUserMenu = !showUserMenu"
               class="flex items-center gap-1 sm:gap-2 p-1.5 sm:px-3 sm:py-2 rounded-lg hover:bg-gatales-input transition-colors"
             >
-              <div class="w-8 h-8 rounded-full bg-gatales-accent flex items-center justify-center text-white font-medium text-sm">
-                {{ authStore.user?.name?.charAt(0)?.toUpperCase() || 'U' }}
+              <div class="w-8 h-8 rounded-full bg-gatales-accent flex items-center justify-center text-white font-medium text-sm overflow-hidden">
+                <img v-if="authStore.user?.avatar_url" :src="authStore.user.avatar_url" class="w-full h-full object-cover" alt="Avatar" />
+                <span v-else>{{ authStore.user?.name?.charAt(0)?.toUpperCase() || 'U' }}</span>
               </div>
               <svg class="w-4 h-4 text-gatales-text-secondary hidden sm:block" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
@@ -304,6 +438,41 @@ function scrollToBottom() {
                 <p class="text-sm font-medium text-gatales-text truncate">{{ authStore.user?.name }}</p>
                 <p class="text-xs text-gatales-text-secondary truncate">{{ authStore.user?.email }}</p>
               </div>
+              <!-- Theme Toggle -->
+              <button
+                @click="themeStore.toggleTheme"
+                class="w-full flex items-center justify-between px-4 py-3 text-sm text-gatales-text hover:bg-gatales-input active:bg-gatales-border"
+              >
+                <span>Tema {{ themeStore.theme === 'dark' ? 'Oscuro' : 'Claro' }}</span>
+                <!-- Sun icon for light mode -->
+                <svg v-if="themeStore.theme === 'light'" class="w-5 h-5 text-yellow-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z" />
+                </svg>
+                <!-- Moon icon for dark mode -->
+                <svg v-else class="w-5 h-5 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" />
+                </svg>
+              </button>
+              <!-- Change Avatar -->
+              <button
+                @click="openAvatarModal"
+                class="w-full flex items-center gap-3 px-4 py-3 text-sm text-gatales-text hover:bg-gatales-input active:bg-gatales-border"
+              >
+                <svg class="w-5 h-5 text-gatales-text-secondary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                </svg>
+                Cambiar foto
+              </button>
+              <!-- Change Password -->
+              <button
+                @click="openPasswordModal"
+                class="w-full flex items-center gap-3 px-4 py-3 text-sm text-gatales-text hover:bg-gatales-input active:bg-gatales-border"
+              >
+                <svg class="w-5 h-5 text-gatales-text-secondary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" />
+                </svg>
+                Cambiar contraseña
+              </button>
               <button
                 @click="handleClearHistory"
                 class="w-full text-left px-4 py-3 text-sm text-gatales-text hover:bg-gatales-input active:bg-gatales-border"
@@ -359,13 +528,19 @@ function scrollToBottom() {
             v-for="message in chatStore.messages"
             :key="message.id"
             :message="message"
+            :user-avatar="authStore.user?.avatar_url"
+            :user-name="authStore.user?.name || 'Usuario'"
           />
 
           <!-- Typing indicator (only when sending but not streaming/thinking - those show content directly) -->
           <div v-if="chatStore.isSending && !chatStore.isStreaming && !chatStore.isThinking" class="px-3 sm:px-4 py-4 sm:py-6 message-assistant">
             <div class="flex items-start gap-3 sm:gap-4 max-w-3xl mx-auto">
               <div class="w-7 h-7 sm:w-8 sm:h-8 rounded-full bg-gatales-accent flex items-center justify-center flex-shrink-0">
-                <span class="text-white text-xs sm:text-sm font-medium">G</span>
+                <svg class="w-5 h-5 sm:w-6 sm:h-6 text-white" viewBox="0 0 100 100" fill="currentColor">
+                  <path d="M50 15 L25 35 L25 60 Q25 80 50 85 Q75 80 75 60 L75 35 Z"/>
+                  <path d="M25 35 L15 10 L35 30 Z"/>
+                  <path d="M75 35 L85 10 L65 30 Z"/>
+                </svg>
               </div>
               <div class="typing-indicator">
                 <span></span>
@@ -477,6 +652,189 @@ function scrollToBottom() {
             <p class="text-xs text-gatales-text-secondary text-center">
               Al cambiar de asistente, se creara una nueva conversacion.
             </p>
+          </div>
+        </div>
+      </Transition>
+    </Teleport>
+
+    <!-- Password Change Modal -->
+    <Teleport to="body">
+      <Transition name="fade">
+        <div
+          v-if="showPasswordModal"
+          class="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4"
+          @click.self="showPasswordModal = false"
+        >
+          <div class="w-full max-w-md bg-gatales-sidebar border border-gatales-border rounded-xl shadow-xl">
+            <!-- Header -->
+            <div class="flex items-center justify-between p-4 border-b border-gatales-border">
+              <h3 class="text-lg font-semibold text-gatales-text">Cambiar contraseña</h3>
+              <button
+                @click="showPasswordModal = false"
+                class="p-2 rounded-lg hover:bg-gatales-input transition-colors"
+              >
+                <svg class="w-5 h-5 text-gatales-text-secondary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+
+            <!-- Form -->
+            <form @submit.prevent="handleChangePassword" class="p-4 space-y-4">
+              <!-- Success message -->
+              <div v-if="passwordSuccess" class="bg-green-500/10 border border-green-500/50 text-green-400 px-4 py-3 rounded-lg text-sm">
+                {{ passwordSuccess }}
+              </div>
+
+              <!-- Error message -->
+              <div v-if="passwordError" class="bg-red-500/10 border border-red-500/50 text-red-400 px-4 py-3 rounded-lg text-sm">
+                {{ passwordError }}
+              </div>
+
+              <div>
+                <label class="block text-sm font-medium text-gatales-text-secondary mb-1">Contraseña actual</label>
+                <input
+                  v-model="passwordForm.current_password"
+                  type="password"
+                  required
+                  class="input-field"
+                  placeholder="Tu contraseña actual"
+                />
+              </div>
+
+              <div>
+                <label class="block text-sm font-medium text-gatales-text-secondary mb-1">Nueva contraseña</label>
+                <input
+                  v-model="passwordForm.password"
+                  type="password"
+                  required
+                  class="input-field"
+                  placeholder="Mínimo 8 caracteres"
+                />
+              </div>
+
+              <div>
+                <label class="block text-sm font-medium text-gatales-text-secondary mb-1">Confirmar nueva contraseña</label>
+                <input
+                  v-model="passwordForm.password_confirmation"
+                  type="password"
+                  required
+                  class="input-field"
+                  placeholder="Repite la nueva contraseña"
+                />
+              </div>
+
+              <div class="flex gap-3 pt-2">
+                <button
+                  type="button"
+                  @click="showPasswordModal = false"
+                  class="flex-1 btn-secondary"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  :disabled="isChangingPassword"
+                  class="flex-1 btn-primary"
+                >
+                  <svg v-if="isChangingPassword" class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+                  </svg>
+                  {{ isChangingPassword ? 'Guardando...' : 'Guardar' }}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      </Transition>
+    </Teleport>
+
+    <!-- Avatar Change Modal -->
+    <Teleport to="body">
+      <Transition name="fade">
+        <div
+          v-if="showAvatarModal"
+          class="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4"
+          @click.self="showAvatarModal = false"
+        >
+          <div class="w-full max-w-md bg-gatales-sidebar border border-gatales-border rounded-xl shadow-xl">
+            <!-- Header -->
+            <div class="flex items-center justify-between p-4 border-b border-gatales-border">
+              <h3 class="text-lg font-semibold text-gatales-text">Cambiar foto de perfil</h3>
+              <button
+                @click="showAvatarModal = false"
+                class="p-2 rounded-lg hover:bg-gatales-input transition-colors"
+              >
+                <svg class="w-5 h-5 text-gatales-text-secondary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+
+            <!-- Content -->
+            <div class="p-6 space-y-6">
+              <!-- Error message -->
+              <div v-if="avatarError" class="bg-red-500/10 border border-red-500/50 text-red-400 px-4 py-3 rounded-lg text-sm">
+                {{ avatarError }}
+              </div>
+
+              <!-- Avatar Preview -->
+              <div class="flex flex-col items-center">
+                <div class="w-28 h-28 rounded-full bg-gatales-input flex items-center justify-center overflow-hidden border-4 border-gatales-border shadow-lg">
+                  <img v-if="avatarPreview" :src="avatarPreview" class="w-full h-full object-cover" alt="Avatar" />
+                  <span v-else class="text-4xl font-bold text-gatales-accent">
+                    {{ authStore.user?.name?.charAt(0)?.toUpperCase() || 'U' }}
+                  </span>
+                </div>
+
+                <!-- File input -->
+                <label class="mt-5 cursor-pointer inline-flex items-center gap-2 px-4 py-2.5 bg-gatales-input hover:bg-gatales-border border border-gatales-border rounded-lg transition-colors">
+                  <svg class="w-5 h-5 text-gatales-text-secondary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                  </svg>
+                  <span class="text-sm font-medium text-gatales-text">Seleccionar imagen</span>
+                  <input
+                    type="file"
+                    accept="image/jpeg,image/png,image/gif"
+                    class="hidden"
+                    @change="handleAvatarSelect"
+                  />
+                </label>
+                <p class="text-xs text-gatales-text-secondary mt-2">JPG, PNG o GIF. Máximo 2MB.</p>
+              </div>
+
+              <!-- Actions -->
+              <div class="flex gap-3 pt-2">
+                <button
+                  v-if="authStore.user?.avatar_url"
+                  type="button"
+                  @click="handleDeleteAvatar"
+                  :disabled="isUploadingAvatar"
+                  class="px-4 py-2.5 text-sm font-medium text-red-400 border border-red-500/30 hover:bg-red-500/10 rounded-lg transition-colors"
+                >
+                  Eliminar
+                </button>
+                <button
+                  type="button"
+                  @click="showAvatarModal = false"
+                  class="flex-1 px-4 py-2.5 text-sm font-medium text-gatales-text bg-gatales-input hover:bg-gatales-border border border-gatales-border rounded-lg transition-colors"
+                >
+                  Cancelar
+                </button>
+                <button
+                  @click="handleUploadAvatar"
+                  :disabled="!avatarFile || isUploadingAvatar"
+                  class="flex-1 px-4 py-2.5 text-sm font-medium text-white bg-gatales-accent hover:bg-gatales-accent-hover disabled:opacity-50 disabled:cursor-not-allowed rounded-lg transition-colors flex items-center justify-center gap-2"
+                >
+                  <svg v-if="isUploadingAvatar" class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+                  </svg>
+                  {{ isUploadingAvatar ? 'Subiendo...' : 'Guardar' }}
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       </Transition>

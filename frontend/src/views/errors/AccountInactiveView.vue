@@ -33,7 +33,7 @@ async function handleLogout() {
 
       <!-- Description -->
       <p class="text-sm sm:text-base text-gatales-text-secondary mb-5 sm:mb-6 px-2">
-        Por favor renueva tu suscripcion para continuar usando Gatales.
+        Por favor renueva tu suscripcion para continuar usando El Cursales.
       </p>
 
       <!-- Actions -->

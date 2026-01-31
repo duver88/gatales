@@ -49,6 +49,10 @@ Route::middleware(['auth:sanctum', 'user.active'])->group(function () {
     // Auth
     Route::post('/auth/logout', [AuthController::class, 'logout']);
     Route::get('/auth/me', [AuthController::class, 'me']);
+    Route::post('/auth/change-password', [AuthController::class, 'changePassword']);
+    Route::patch('/auth/profile', [AuthController::class, 'updateProfile']);
+    Route::post('/auth/avatar', [AuthController::class, 'uploadAvatar']);
+    Route::delete('/auth/avatar', [AuthController::class, 'deleteAvatar']);
 
     // Chat (legacy endpoints - for backward compatibility)
     Route::prefix('chat')->group(function () {

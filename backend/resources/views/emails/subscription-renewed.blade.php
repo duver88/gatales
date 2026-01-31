@@ -5,15 +5,15 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Suscripción Renovada</title>
 </head>
-<body style="margin: 0; padding: 0; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #1a1a1a;">
+<body style="margin: 0; padding: 0; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #000000;">
     <table role="presentation" style="width: 100%; border-collapse: collapse;">
         <tr>
             <td align="center" style="padding: 40px 0;">
-                <table role="presentation" style="width: 600px; border-collapse: collapse; background-color: #212121; border-radius: 12px; overflow: hidden;">
+                <table role="presentation" style="width: 600px; border-collapse: collapse; background-color: #111111; border-radius: 12px; overflow: hidden;">
                     <!-- Header -->
                     <tr>
-                        <td style="padding: 40px 40px 30px 40px; text-align: center; background-color: #171717;">
-                            <h1 style="margin: 0; font-size: 32px; font-weight: bold; color: #10A37F;">Gatales</h1>
+                        <td style="padding: 40px 40px 30px 40px; text-align: center; background-color: #0d0d0d;">
+                            <h1 style="margin: 0; font-size: 32px; font-weight: bold; color: #00be88;">El Cursales</h1>
                             <p style="margin: 10px 0 0 0; color: #888888; font-size: 14px;">Tu asistente de guiones de video</p>
                         </td>
                     </tr>
@@ -32,11 +32,11 @@
                             <!-- Token Balance Box -->
                             <table role="presentation" style="width: 100%; border-collapse: collapse; margin: 25px 0;">
                                 <tr>
-                                    <td style="background-color: #1a2e29; border: 1px solid #10A37F; padding: 25px; border-radius: 8px; text-align: center;">
+                                    <td style="background-color: #1a2e29; border: 1px solid #00be88; padding: 25px; border-radius: 8px; text-align: center;">
                                         <p style="margin: 0 0 5px 0; color: #888888; font-size: 12px; text-transform: uppercase; letter-spacing: 1px;">
                                             Tu nuevo balance de tokens
                                         </p>
-                                        <p style="margin: 0; color: #10A37F; font-size: 42px; font-weight: bold;">
+                                        <p style="margin: 0; color: #00be88; font-size: 42px; font-weight: bold;">
                                             {{ number_format($tokensBalance) }}
                                         </p>
                                         <p style="margin: 10px 0 0 0; color: #666666; font-size: 13px;">
@@ -49,8 +49,8 @@
                             <!-- Success Box -->
                             <table role="presentation" style="width: 100%; border-collapse: collapse; margin: 25px 0;">
                                 <tr>
-                                    <td style="background-color: #1a2e29; border-left: 4px solid #10A37F; padding: 15px 20px; border-radius: 4px;">
-                                        <p style="margin: 0; color: #10A37F; font-size: 15px;">
+                                    <td style="background-color: #1a2e29; border-left: 4px solid #00be88; padding: 15px 20px; border-radius: 4px;">
+                                        <p style="margin: 0; color: #00be88; font-size: 15px;">
                                             <strong>✅ Tu cuenta está activa</strong><br>
                                             <span style="color: #6ee7b7;">Continúa disfrutando de todas las funcionalidades premium.</span>
                                         </p>
@@ -73,7 +73,7 @@
                             <table role="presentation" style="width: 100%; border-collapse: collapse;">
                                 <tr>
                                     <td align="center" style="padding: 20px 0;">
-                                        <a href="{{ config('services.frontend.url', config('app.url')) }}" style="display: inline-block; padding: 16px 40px; background-color: #10A37F; color: #FFFFFF; text-decoration: none; font-size: 16px; font-weight: 600; border-radius: 8px;">
+                                        <a href="{{ config('services.frontend.url', config('app.url')) }}" style="display: inline-block; padding: 16px 40px; background-color: #00be88; color: #FFFFFF; text-decoration: none; font-size: 16px; font-weight: 600; border-radius: 8px;">
                                             🚀 Ir a mi cuenta
                                         </a>
                                     </td>
@@ -89,9 +89,9 @@
 
                     <!-- Footer -->
                     <tr>
-                        <td style="padding: 30px 40px; background-color: #171717; text-align: center; border-top: 1px solid #333333;">
+                        <td style="padding: 30px 40px; background-color: #0d0d0d; text-align: center; border-top: 1px solid #2a2a2a;">
                             <p style="margin: 0; color: #666666; font-size: 12px;">
-                                © {{ date('Y') }} Gatales. Todos los derechos reservados.
+                                © {{ date('Y') }} El Cursales. Todos los derechos reservados.
                             </p>
                             <p style="margin: 10px 0 0 0; color: #555555; font-size: 11px;">
                                 Este correo fue enviado a {{ $user->email }}

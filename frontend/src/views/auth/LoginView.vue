@@ -31,7 +31,14 @@ async function handleSubmit() {
     <div class="w-full max-w-sm sm:max-w-md">
       <!-- Logo -->
       <div class="text-center mb-6 sm:mb-8">
-        <h1 class="text-3xl sm:text-4xl font-bold text-gatales-accent">Gatales</h1>
+        <div class="w-16 h-16 bg-gatales-accent rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-lg shadow-gatales-accent/30">
+          <svg class="w-10 h-10 text-white" viewBox="0 0 100 100" fill="currentColor">
+            <path d="M50 15 L25 35 L25 60 Q25 80 50 85 Q75 80 75 60 L75 35 Z"/>
+            <path d="M25 35 L15 10 L35 30 Z"/>
+            <path d="M75 35 L85 10 L65 30 Z"/>
+          </svg>
+        </div>
+        <h1 class="text-3xl sm:text-4xl font-bold text-gatales-accent">El Cursales</h1>
         <p class="text-sm sm:text-base text-gatales-text-secondary mt-2">Tu asistente de guiones de video</p>
       </div>
 
