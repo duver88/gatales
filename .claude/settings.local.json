@@ -23,7 +23,18 @@
       "WebFetch(domain:demo.tailadmin.com)",
       "Bash(git push:*)",
       "WebFetch(domain:platform.openai.com)",
-      "WebFetch(domain:cookbook.openai.com)"
+      "WebFetch(domain:cookbook.openai.com)",
+      "WebFetch(domain:status.openai.com)",
+      "WebFetch(domain:community.openai.com)",
+      "WebFetch(domain:www.taivo.ai)",
+      "Bash(dir:*)",
+      "Bash(wc:*)",
+      "Bash(git restore:*)",
+      "Bash(more:*)",
+      "Bash(Get-Content storage/logs/laravel.log -Tail 200)",
+      "Bash(Select-String -Pattern \"OpenAI|error|warning\" -CaseSensitive:$false)",
+      "Bash(powershell:*)",
+      "Bash(git log:*)"
     ]
   }
 }
