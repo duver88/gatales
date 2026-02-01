@@ -239,6 +239,9 @@ class ChatController extends Controller
         $usesResponsesApi = $assistant && $assistant->usesResponsesApi();
 
         return new StreamedResponse(function () use ($user, $userId, $message, $conversation, $assistant, $usesResponsesApi) {
+            // Deshabilitar timeout de PHP para streaming largo (GPT-5 + Knowledge Base puede tardar varios minutos)
+            set_time_limit(0);
+
             // Deshabilitar TODOS los buffers de forma agresiva
             @ini_set('output_buffering', 'off');
             @ini_set('zlib.output_compression', false);
