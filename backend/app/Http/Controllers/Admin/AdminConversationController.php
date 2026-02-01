@@ -320,6 +320,9 @@ class AdminConversationController extends Controller
         $usesResponsesApi = $assistant->usesResponsesApi();
 
         return new StreamedResponse(function () use ($admin, $message, $conversation, $assistant, $usesResponsesApi) {
+            // Deshabilitar timeout de PHP para streaming largo (GPT-5 puede tardar varios minutos)
+            set_time_limit(0);
+
             // Deshabilitar TODOS los buffers de forma agresiva
             @ini_set('output_buffering', 'off');
             @ini_set('zlib.output_compression', false);
@@ -399,6 +402,7 @@ class AdminConversationController extends Controller
                     $state->tokensInput = 0;
                     $state->tokensOutput = 0;
                     $state->buffer = '';
+                    $state->receivedDeltas = false; // Track if we received streaming deltas to avoid duplicates
 
                     curl_setopt_array($ch, [
                         CURLOPT_POST => true,
@@ -409,7 +413,7 @@ class AdminConversationController extends Controller
                             'Accept: text/event-stream',
                         ],
                         CURLOPT_RETURNTRANSFER => false,
-                        CURLOPT_TIMEOUT => 300,
+                        CURLOPT_TIMEOUT => 900, // 15 minutes for GPT-5
                         CURLOPT_CONNECTTIMEOUT => 30,
                         CURLOPT_WRITEFUNCTION => function($ch, $data) use ($state) {
                             $state->buffer .= $data;
@@ -434,33 +438,39 @@ class AdminConversationController extends Controller
                                     // 1. Delta streaming events (preferred for real-time)
                                     if ($eventType === 'response.output_text.delta' && isset($event['delta'])) {
                                         $delta = $event['delta'];
+                                        $state->receivedDeltas = true;
                                     }
                                     // 2. Content part delta
                                     elseif ($eventType === 'response.content_part.delta' && isset($event['delta']['text'])) {
                                         $delta = $event['delta']['text'];
+                                        $state->receivedDeltas = true;
                                     }
-                                    // 3. Output item done - extract full text from completed item
-                                    elseif ($eventType === 'response.output_item.done' && isset($event['item'])) {
-                                        $item = $event['item'];
-                                        if (isset($item['content']) && is_array($item['content'])) {
-                                            foreach ($item['content'] as $content) {
-                                                if (isset($content['text'])) {
-                                                    $delta = $content['text'];
-                                                    break;
-                                                }
-                                            }
-                                        }
-                                        if ($delta === null && isset($item['text'])) {
-                                            $delta = $item['text'];
-                                        }
-                                    }
-                                    // 4. Content part done - extract text
-                                    elseif ($eventType === 'response.content_part.done' && isset($event['part']['text'])) {
-                                        $delta = $event['part']['text'];
-                                    }
-                                    // 5. Fallback: direct delta string
+                                    // 3. Fallback: direct delta string
                                     elseif (isset($event['delta']) && is_string($event['delta'])) {
                                         $delta = $event['delta'];
+                                        $state->receivedDeltas = true;
+                                    }
+                                    // 4. Fallback handlers ONLY if we didn't receive streaming deltas
+                                    elseif (!$state->receivedDeltas) {
+                                        // Output item done - extract full text from completed item
+                                        if ($eventType === 'response.output_item.done' && isset($event['item'])) {
+                                            $item = $event['item'];
+                                            if (isset($item['content']) && is_array($item['content'])) {
+                                                foreach ($item['content'] as $content) {
+                                                    if (isset($content['text'])) {
+                                                        $delta = $content['text'];
+                                                        break;
+                                                    }
+                                                }
+                                            }
+                                            if ($delta === null && isset($item['text'])) {
+                                                $delta = $item['text'];
+                                            }
+                                        }
+                                        // Content part done - extract text
+                                        elseif ($eventType === 'response.content_part.done' && isset($event['part']['text'])) {
+                                            $delta = $event['part']['text'];
+                                        }
                                     }
 
                                     if ($delta !== null && $delta !== '') {
