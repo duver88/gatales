@@ -173,17 +173,23 @@ class Assistant extends Model
     public static function getAvailableModels(): array
     {
         return [
-            // Modelos principales
-            'gpt-4o-mini' => 'GPT-4o Mini (Recomendado - Economico)',
-            'gpt-4o' => 'GPT-4o (Mejor calidad)',
-            'gpt-4-turbo' => 'GPT-4 Turbo',
-            'gpt-3.5-turbo' => 'GPT-3.5 Turbo (Muy economico)',
-            // GPT-5
-            'gpt-5' => 'GPT-5 (Ultimo modelo)',
+            // GPT-5.2 (Ultimo - Enero 2026)
+            'gpt-5.2' => 'GPT-5.2 (Mejor modelo - Recomendado)',
+            'gpt-5.2-mini' => 'GPT-5.2 Mini (Rapido y economico)',
+            'gpt-5.2-codex' => 'GPT-5.2 Codex (Optimizado para codigo)',
+            // GPT-5.1
+            'gpt-5.1' => 'GPT-5.1',
+            'gpt-5.1-mini' => 'GPT-5.1 Mini',
+            'gpt-5.1-codex' => 'GPT-5.1 Codex',
+            // GPT-5 base
+            'gpt-5' => 'GPT-5',
+            'gpt-5-mini' => 'GPT-5 Mini (Economico)',
+            // GPT-4 (Legacy)
+            'gpt-4o-mini' => 'GPT-4o Mini (Legacy - Muy economico)',
+            'gpt-4o' => 'GPT-4o (Legacy)',
             // Modelos de razonamiento (o1)
             'o1' => 'o1 (Razonamiento avanzado)',
             'o1-mini' => 'o1-mini (Razonamiento rapido)',
-            'o1-preview' => 'o1-preview',
         ];
     }
 
