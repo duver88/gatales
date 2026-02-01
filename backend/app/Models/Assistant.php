@@ -190,6 +190,9 @@ class Assistant extends Model
             // Modelos de razonamiento (o1)
             'o1' => 'o1 (Razonamiento avanzado)',
             'o1-mini' => 'o1-mini (Razonamiento rapido)',
+            // DeepSeek Models
+            'deepseek-chat' => 'DeepSeek Chat (Economico y potente)',
+            'deepseek-reasoner' => 'DeepSeek Reasoner (Razonamiento avanzado)',
         ];
     }
 

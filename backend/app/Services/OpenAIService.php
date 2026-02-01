@@ -8,11 +8,13 @@ use App\Models\Conversation;
 use App\Models\Message;
 use App\Models\User;
 use App\Services\OpenAIAssistantService;
+use App\Services\DeepSeekService;
 use OpenAI\Laravel\Facades\OpenAI;
 
 class OpenAIService
 {
     protected ?OpenAIAssistantService $assistantService = null;
+    protected ?DeepSeekService $deepSeekService = null;
 
     /**
      * Get the OpenAI Assistant Service (lazy loading)
@@ -23,6 +25,25 @@ class OpenAIService
             $this->assistantService = new OpenAIAssistantService();
         }
         return $this->assistantService;
+    }
+
+    /**
+     * Get the DeepSeek Service (lazy loading)
+     */
+    protected function getDeepSeekService(): DeepSeekService
+    {
+        if ($this->deepSeekService === null) {
+            $this->deepSeekService = new DeepSeekService();
+        }
+        return $this->deepSeekService;
+    }
+
+    /**
+     * Check if a model is a DeepSeek model
+     */
+    protected function isDeepSeekModel(string $model): bool
+    {
+        return DeepSeekService::isDeepSeekModel($model);
     }
 
     /**
@@ -41,6 +62,12 @@ class OpenAIService
         }
 
         $settings = $assistant ? $assistant->toSettingsArray() : AiSetting::getAllValues();
+        $model = $settings['model'] ?? 'gpt-4o-mini';
+
+        // If using DeepSeek model, delegate to DeepSeek service
+        if ($this->isDeepSeekModel($model)) {
+            return $this->getDeepSeekService()->sendMessage($user, $message, $conversation);
+        }
 
         // Build messages array with context
         $messages = $this->buildMessagesArray(
@@ -310,6 +337,12 @@ class OpenAIService
 
         $settings = $assistant ? $assistant->toSettingsArray() : AiSetting::getAllValues();
         $model = $settings['model'] ?? 'gpt-4o-mini';
+
+        // If using DeepSeek model, delegate to DeepSeek service
+        if ($this->isDeepSeekModel($model)) {
+            yield from $this->getDeepSeekService()->sendMessageStreamed($user, $message, $conversation);
+            return;
+        }
 
         // If model doesn't support streaming, fall back to regular
         if (!$this->supportsStreaming($model)) {
