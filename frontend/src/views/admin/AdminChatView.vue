@@ -9,7 +9,32 @@ const newMessage = ref('')
 const loading = ref(false)
 const loadingAssistants = ref(true)
 const messagesContainer = ref(null)
-const tokenUsage = ref({ prompt: 0, completion: 0, total: 0 })
+const tokenUsage = ref({ prompt: 0, completion: 0, total: 0, cost: 0 })
+const lastMessageTokens = ref({ input: 0, output: 0, cost: 0 })
+
+// Precios por millón de tokens (USD)
+const MODEL_PRICING = {
+  'gpt-5.2': { input: 1.25, output: 10.00 },
+  'gpt-5.2-mini': { input: 0.25, output: 2.00 },
+  'gpt-5.2-codex': { input: 1.50, output: 12.00 },
+  'gpt-5.1': { input: 1.25, output: 10.00 },
+  'gpt-5.1-mini': { input: 0.25, output: 2.00 },
+  'gpt-5.1-codex': { input: 1.50, output: 12.00 },
+  'gpt-5': { input: 1.25, output: 10.00 },
+  'gpt-5-mini': { input: 0.25, output: 2.00 },
+  'gpt-4o': { input: 2.50, output: 10.00 },
+  'gpt-4o-mini': { input: 0.15, output: 0.60 },
+  'gpt-4-turbo': { input: 10.00, output: 30.00 },
+  'o1': { input: 15.00, output: 60.00 },
+  'o1-mini': { input: 3.00, output: 12.00 },
+}
+
+function calculateCost(model, inputTokens, outputTokens) {
+  const pricing = MODEL_PRICING[model] || MODEL_PRICING['gpt-4o-mini']
+  const inputCost = (inputTokens / 1000000) * pricing.input
+  const outputCost = (outputTokens / 1000000) * pricing.output
+  return inputCost + outputCost
+}
 
 // Test conversations state
 const testConversations = ref([])
@@ -76,7 +101,8 @@ async function loadTestConversations(assistantId) {
     } else {
       currentConversationId.value = null
       messages.value = []
-      tokenUsage.value = { prompt: 0, completion: 0, total: 0 }
+      tokenUsage.value = { prompt: 0, completion: 0, total: 0, cost: 0 }
+      lastMessageTokens.value = { input: 0, output: 0, cost: 0 }
     }
   } catch (error) {
     console.error('Error loading test conversations:', error)
@@ -91,7 +117,8 @@ function selectAssistant(id) {
     selectedAssistantId.value = id
     currentConversationId.value = null
     messages.value = []
-    tokenUsage.value = { prompt: 0, completion: 0, total: 0 }
+    tokenUsage.value = { prompt: 0, completion: 0, total: 0, cost: 0 }
+    lastMessageTokens.value = { input: 0, output: 0, cost: 0 }
   }
 }
 
@@ -100,7 +127,8 @@ async function selectConversation(id) {
 
   currentConversationId.value = id
   messages.value = []
-  tokenUsage.value = { prompt: 0, completion: 0, total: 0 }
+  tokenUsage.value = { prompt: 0, completion: 0, total: 0, cost: 0 }
+  lastMessageTokens.value = { input: 0, output: 0, cost: 0 }
 
   try {
     const response = await adminApi.getTestConversation(id)
@@ -116,11 +144,17 @@ async function selectConversation(id) {
       usedKnowledgeBase: m.used_knowledge_base || false
     }))
 
-    // Set token usage
+    // Set token usage with cost calculation
+    const inputTokens = conversation.total_tokens_input || 0
+    const outputTokens = conversation.total_tokens_output || 0
+    const model = selectedAssistant.value?.model || 'gpt-4o-mini'
+    const cost = calculateCost(model, inputTokens, outputTokens)
+
     tokenUsage.value = {
-      prompt: conversation.total_tokens_input || 0,
-      completion: conversation.total_tokens_output || 0,
-      total: (conversation.total_tokens_input || 0) + (conversation.total_tokens_output || 0)
+      prompt: inputTokens,
+      completion: outputTokens,
+      total: inputTokens + outputTokens,
+      cost: cost
     }
 
     scrollToBottom()
@@ -141,7 +175,8 @@ async function createNewConversation() {
     testConversations.value.unshift(newConv)
     currentConversationId.value = newConv.id
     messages.value = []
-    tokenUsage.value = { prompt: 0, completion: 0, total: 0 }
+    tokenUsage.value = { prompt: 0, completion: 0, total: 0, cost: 0 }
+    lastMessageTokens.value = { input: 0, output: 0, cost: 0 }
   } catch (error) {
     console.error('Error creating conversation:', error)
   } finally {
@@ -165,7 +200,8 @@ async function deleteConversation(id) {
       } else {
         currentConversationId.value = null
         messages.value = []
-        tokenUsage.value = { prompt: 0, completion: 0, total: 0 }
+        tokenUsage.value = { prompt: 0, completion: 0, total: 0, cost: 0 }
+        lastMessageTokens.value = { input: 0, output: 0, cost: 0 }
       }
     }
   } catch (error) {
@@ -182,7 +218,8 @@ async function clearAllConversations() {
     testConversations.value = []
     currentConversationId.value = null
     messages.value = []
-    tokenUsage.value = { prompt: 0, completion: 0, total: 0 }
+    tokenUsage.value = { prompt: 0, completion: 0, total: 0, cost: 0 }
+    lastMessageTokens.value = { input: 0, output: 0, cost: 0 }
   } catch (error) {
     console.error('Error clearing conversations:', error)
   }
@@ -262,8 +299,23 @@ async function sendMessage() {
         messages.value[msgIdx].isThinking = false
       }
 
-      // Update token usage
-      if (data.tokens_used) {
+      // Update token usage with detailed info
+      if (data.tokens_input !== undefined && data.tokens_output !== undefined) {
+        const cost = calculateCost(data.model || selectedAssistant.value?.model, data.tokens_input, data.tokens_output)
+
+        // Update last message tokens
+        lastMessageTokens.value = {
+          input: data.tokens_input,
+          output: data.tokens_output,
+          cost: cost
+        }
+
+        // Update totals
+        tokenUsage.value.prompt += data.tokens_input
+        tokenUsage.value.completion += data.tokens_output
+        tokenUsage.value.total += data.tokens_input + data.tokens_output
+        tokenUsage.value.cost += cost
+      } else if (data.tokens_used) {
         tokenUsage.value.total += data.tokens_used
       }
 
@@ -484,10 +536,18 @@ function truncateTitle(title, maxLength = 30) {
           Selecciona un asistente
         </div>
 
-        <div class="flex items-center gap-3 shrink-0">
-          <!-- Token usage -->
-          <div v-if="tokenUsage.total > 0" class="text-sm text-gatales-text-secondary bg-gatales-input px-3 py-1.5 rounded-lg">
-            <span class="text-gatales-text font-medium">{{ tokenUsage.total.toLocaleString() }}</span> tokens
+        <div class="flex items-center gap-2 shrink-0">
+          <!-- Last message tokens -->
+          <div v-if="lastMessageTokens.input > 0 || lastMessageTokens.output > 0" class="text-xs bg-gatales-accent/10 text-gatales-accent px-2 py-1 rounded-lg">
+            <span class="font-medium">Ultimo:</span>
+            {{ lastMessageTokens.input.toLocaleString() }} in / {{ lastMessageTokens.output.toLocaleString() }} out
+            <span class="text-green-400 ml-1">${{ lastMessageTokens.cost.toFixed(4) }}</span>
+          </div>
+          <!-- Total token usage -->
+          <div v-if="tokenUsage.total > 0" class="text-xs text-gatales-text-secondary bg-gatales-input px-2 py-1 rounded-lg">
+            <span class="text-gatales-text font-medium">Total:</span>
+            {{ tokenUsage.prompt.toLocaleString() }} in / {{ tokenUsage.completion.toLocaleString() }} out
+            <span class="text-green-400 ml-1">${{ tokenUsage.cost.toFixed(4) }}</span>
           </div>
         </div>
       </div>

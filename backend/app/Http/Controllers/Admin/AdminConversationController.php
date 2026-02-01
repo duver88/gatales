@@ -579,11 +579,16 @@ class AdminConversationController extends Controller
 
                 $this->sendSSE('done', [
                     'message_id' => $assistantMessage->id,
+                    'tokens_input' => $tokensInput,
+                    'tokens_output' => $tokensOutput,
                     'tokens_used' => $tokensInput + $tokensOutput,
+                    'model' => $assistant->model,
                     'conversation' => [
                         'id' => $conversation->id,
                         'title' => $conversation->title,
                         'total_tokens' => $conversation->total_tokens,
+                        'total_tokens_input' => $conversation->total_tokens_input,
+                        'total_tokens_output' => $conversation->total_tokens_output,
                     ],
                 ]);
 
