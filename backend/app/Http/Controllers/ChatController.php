@@ -696,6 +696,17 @@ class ChatController extends Controller
         if ($httpCode !== 200) {
             throw new \Exception("API error: HTTP $httpCode");
         }
+
+        // Throw if no content was received (empty response)
+        if (empty($state->fullContent)) {
+            Log::error('OpenAI returned empty content', [
+                'user_id' => $user->id,
+                'conversation_id' => $conversation->id,
+                'event_types' => $uniqueEventTypes,
+                'raw_response_length' => strlen($state->rawResponse),
+            ]);
+            throw new \Exception("OpenAI returned empty response. Event types received: " . implode(', ', $uniqueEventTypes));
+        }
     }
 
     /**
