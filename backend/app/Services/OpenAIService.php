@@ -85,28 +85,32 @@ class OpenAIService
         ];
 
         // Newer models (GPT-5, o1 series) use max_completion_tokens instead of max_tokens
-        if ($this->usesMaxCompletionTokens($model)) {
+        // They also don't support temperature or sampling parameters (top_p, frequency_penalty, presence_penalty)
+        $isNewModel = $this->usesMaxCompletionTokens($model);
+
+        if ($isNewModel) {
             $params['max_completion_tokens'] = $maxTokens;
-            // o1 and GPT-5 models don't support custom temperature (only default=1)
-            // Don't send temperature parameter for these models
+            // GPT-5 and o1 models don't support custom temperature or sampling parameters
+            // Don't send these parameters to avoid API errors
         } else {
             $params['temperature'] = (float) ($settings['temperature'] ?? 0.7);
             $params['max_tokens'] = $maxTokens;
-        }
 
-        // Top P (nucleus sampling)
-        if (!empty($settings['top_p']) && $settings['top_p'] !== '1') {
-            $params['top_p'] = (float) $settings['top_p'];
-        }
+            // Sampling parameters only for older models (GPT-4, GPT-3.5, etc.)
+            // Top P (nucleus sampling)
+            if (!empty($settings['top_p']) && $settings['top_p'] !== '1') {
+                $params['top_p'] = (float) $settings['top_p'];
+            }
 
-        // Frequency penalty
-        if (!empty($settings['frequency_penalty']) && $settings['frequency_penalty'] !== '0') {
-            $params['frequency_penalty'] = (float) $settings['frequency_penalty'];
-        }
+            // Frequency penalty
+            if (!empty($settings['frequency_penalty']) && $settings['frequency_penalty'] !== '0') {
+                $params['frequency_penalty'] = (float) $settings['frequency_penalty'];
+            }
 
-        // Presence penalty
-        if (!empty($settings['presence_penalty']) && $settings['presence_penalty'] !== '0') {
-            $params['presence_penalty'] = (float) $settings['presence_penalty'];
+            // Presence penalty
+            if (!empty($settings['presence_penalty']) && $settings['presence_penalty'] !== '0') {
+                $params['presence_penalty'] = (float) $settings['presence_penalty'];
+            }
         }
 
         // Response format

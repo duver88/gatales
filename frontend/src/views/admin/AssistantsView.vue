@@ -71,10 +71,14 @@ const noTemperatureSupport = computed(() => {
 })
 
 // Computed to check if model uses new API format (GPT-5, o1)
+// These models don't support sampling parameters (top_p, frequency_penalty, presence_penalty)
 const isNewModel = computed(() => {
   const model = formData.value.model || ''
   return model.startsWith('gpt-5') || model.startsWith('o1')
 })
+
+// Computed: sampling parameters are not supported for new models
+const noSamplingSupport = computed(() => isNewModel.value)
 
 // Computed to check if model supports reasoning effort (GPT-5 only)
 const supportsReasoningEffort = computed(() => {
@@ -403,6 +407,18 @@ function getStatusText(status) {
           <span class="px-2 py-1 bg-gatales-input rounded">
             Temp: {{ (assistant.model?.startsWith('o1') || assistant.model?.startsWith('gpt-5')) ? 'N/A' : assistant.temperature }}
           </span>
+          <!-- Reasoning Effort indicator for GPT-5 -->
+          <span
+            v-if="assistant.model?.startsWith('gpt-5')"
+            :class="[
+              'px-2 py-1 rounded',
+              assistant.reasoning_effort === 'minimal' || assistant.reasoning_effort === 'none' ? 'bg-green-500/20 text-green-400' :
+              assistant.reasoning_effort === 'low' || assistant.reasoning_effort === 'medium' ? 'bg-yellow-500/20 text-yellow-400' :
+              'bg-red-500/20 text-red-400'
+            ]"
+          >
+            Reasoning: {{ assistant.reasoning_effort || 'minimal' }}
+          </span>
           <span class="px-2 py-1 bg-gatales-input rounded">{{ assistant.users_count || 0 }} usuarios</span>
           <span v-if="assistant.use_knowledge_base" class="px-2 py-1 bg-purple-500/20 text-purple-400 rounded flex items-center gap-1">
             <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -506,7 +522,10 @@ function getStatusText(status) {
               </div>
               <!-- Reasoning Effort (GPT-5 only) - disabled if Knowledge Base is active -->
               <div v-if="supportsReasoningEffort" class="sm:col-span-2">
-                <label class="block text-sm font-medium text-gatales-text-secondary mb-1">Reasoning Effort (Velocidad vs Calidad)</label>
+                <label class="block text-sm font-medium text-gatales-text-secondary mb-1">
+                  Reasoning Effort
+                  <span class="text-yellow-400 ml-1">(IMPORTANTE: afecta velocidad)</span>
+                </label>
                 <select
                   v-model="formData.reasoning_effort"
                   class="input-field"
@@ -517,9 +536,14 @@ function getStatusText(status) {
                     {{ label }}
                   </option>
                 </select>
-                <p class="text-xs text-gatales-text-secondary mt-1">
-                  Controla el nivel de razonamiento de GPT-5. <span class="text-yellow-400">minimal = más rápido</span>, high = mejor calidad
-                </p>
+                <div class="mt-2 p-2 bg-gatales-input rounded text-xs">
+                  <p class="text-gatales-text mb-1"><strong>Guia de velocidad:</strong></p>
+                  <ul class="text-gatales-text-secondary space-y-0.5">
+                    <li><span class="text-green-400">minimal/none</span> = Respuesta rapida (recomendado)</li>
+                    <li><span class="text-yellow-400">low/medium</span> = Mas lento, mejor razonamiento</li>
+                    <li><span class="text-red-400">high/xhigh</span> = MUY lento, maxima calidad</li>
+                  </ul>
+                </div>
                 <p v-if="formData.use_knowledge_base" class="text-xs text-orange-400 mt-1">
                   ⚠️ Knowledge Base activo: Reasoning Effort deshabilitado (no son compatibles)
                 </p>
@@ -570,29 +594,56 @@ function getStatusText(status) {
           <!-- Sampling Parameters -->
           <div class="border-t border-gatales-border pt-4">
             <h3 class="text-sm font-semibold text-gatales-text mb-3">Parametros de Muestreo</h3>
-            <p class="text-xs text-gatales-text-secondary mb-3">Controlan como el modelo selecciona los tokens</p>
+            <p v-if="noSamplingSupport" class="text-xs text-yellow-400 mb-3">
+              Los modelos GPT-5 y o1 no soportan parametros de muestreo personalizados
+            </p>
+            <p v-else class="text-xs text-gatales-text-secondary mb-3">Controlan como el modelo selecciona los tokens</p>
             <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
               <div>
-                <label class="block text-sm font-medium text-gatales-text-secondary mb-1">Top P ({{ formData.top_p }})</label>
+                <label class="block text-sm font-medium text-gatales-text-secondary mb-1">Top P ({{ noSamplingSupport ? 'N/A' : formData.top_p }})</label>
                 <div class="flex items-center gap-3">
-                  <input v-model.number="formData.top_p" type="range" min="0" max="1" step="0.05" class="flex-1 accent-gatales-accent" />
-                  <span class="text-sm text-gatales-text w-10 text-right">{{ formData.top_p }}</span>
+                  <input
+                    v-model.number="formData.top_p"
+                    type="range"
+                    min="0"
+                    max="1"
+                    step="0.05"
+                    :disabled="noSamplingSupport"
+                    :class="['flex-1 accent-gatales-accent', noSamplingSupport ? 'opacity-50 cursor-not-allowed' : '']"
+                  />
+                  <span class="text-sm text-gatales-text w-10 text-right">{{ noSamplingSupport ? '-' : formData.top_p }}</span>
                 </div>
                 <p class="text-xs text-gatales-text-secondary mt-1">Nucleus sampling</p>
               </div>
               <div>
-                <label class="block text-sm font-medium text-gatales-text-secondary mb-1">Freq. Penalty ({{ formData.frequency_penalty }})</label>
+                <label class="block text-sm font-medium text-gatales-text-secondary mb-1">Freq. Penalty ({{ noSamplingSupport ? 'N/A' : formData.frequency_penalty }})</label>
                 <div class="flex items-center gap-3">
-                  <input v-model.number="formData.frequency_penalty" type="range" min="0" max="2" step="0.1" class="flex-1 accent-gatales-accent" />
-                  <span class="text-sm text-gatales-text w-10 text-right">{{ formData.frequency_penalty }}</span>
+                  <input
+                    v-model.number="formData.frequency_penalty"
+                    type="range"
+                    min="0"
+                    max="2"
+                    step="0.1"
+                    :disabled="noSamplingSupport"
+                    :class="['flex-1 accent-gatales-accent', noSamplingSupport ? 'opacity-50 cursor-not-allowed' : '']"
+                  />
+                  <span class="text-sm text-gatales-text w-10 text-right">{{ noSamplingSupport ? '-' : formData.frequency_penalty }}</span>
                 </div>
                 <p class="text-xs text-gatales-text-secondary mt-1">Penaliza repeticion</p>
               </div>
               <div>
-                <label class="block text-sm font-medium text-gatales-text-secondary mb-1">Presence Penalty ({{ formData.presence_penalty }})</label>
+                <label class="block text-sm font-medium text-gatales-text-secondary mb-1">Presence Penalty ({{ noSamplingSupport ? 'N/A' : formData.presence_penalty }})</label>
                 <div class="flex items-center gap-3">
-                  <input v-model.number="formData.presence_penalty" type="range" min="0" max="2" step="0.1" class="flex-1 accent-gatales-accent" />
-                  <span class="text-sm text-gatales-text w-10 text-right">{{ formData.presence_penalty }}</span>
+                  <input
+                    v-model.number="formData.presence_penalty"
+                    type="range"
+                    min="0"
+                    max="2"
+                    step="0.1"
+                    :disabled="noSamplingSupport"
+                    :class="['flex-1 accent-gatales-accent', noSamplingSupport ? 'opacity-50 cursor-not-allowed' : '']"
+                  />
+                  <span class="text-sm text-gatales-text w-10 text-right">{{ noSamplingSupport ? '-' : formData.presence_penalty }}</span>
                 </div>
                 <p class="text-xs text-gatales-text-secondary mt-1">Fomenta nuevos temas</p>
               </div>
@@ -633,6 +684,9 @@ function getStatusText(status) {
             </button>
 
             <div v-if="showAdvanced" class="space-y-4 pl-6">
+              <p v-if="isNewModel" class="text-xs text-yellow-400 mb-3 p-2 bg-yellow-500/10 rounded">
+                Nota: Algunos parametros avanzados pueden no aplicar a GPT-5 y o1
+              </p>
               <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label class="block text-sm font-medium text-gatales-text-secondary mb-1">Seed (reproducibilidad)</label>
