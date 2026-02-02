@@ -3,6 +3,28 @@ import { ref, computed, nextTick } from 'vue'
 import { chatApi } from '../services/api'
 import { useAuthStore } from './auth'
 
+// Model pricing per million tokens
+const MODEL_PRICING = {
+  'gpt-5.2': { input: 1.25, output: 10.00 },
+  'gpt-5.2-mini': { input: 0.25, output: 2.00 },
+  'gpt-5.2-codex': { input: 1.50, output: 12.00 },
+  'gpt-5.1': { input: 1.25, output: 10.00 },
+  'gpt-5.1-mini': { input: 0.25, output: 2.00 },
+  'gpt-5': { input: 1.25, output: 10.00 },
+  'gpt-5-mini': { input: 0.25, output: 2.00 },
+  'gpt-4o': { input: 2.50, output: 10.00 },
+  'gpt-4o-mini': { input: 0.15, output: 0.60 },
+  'o1': { input: 15.00, output: 60.00 },
+  'o1-mini': { input: 3.00, output: 12.00 },
+}
+
+function calculateCost(model, inputTokens, outputTokens) {
+  const pricing = MODEL_PRICING[model] || MODEL_PRICING['gpt-4o-mini']
+  const inputCost = (inputTokens / 1000000) * pricing.input
+  const outputCost = (outputTokens / 1000000) * pricing.output
+  return inputCost + outputCost
+}
+
 export const useChatStore = defineStore('chat', () => {
   const messages = ref([])
   const isLoading = ref(false)
@@ -127,6 +149,14 @@ export const useChatStore = defineStore('chat', () => {
   const streamingContent = ref('')
   const isStreaming = ref(false)
   const isThinking = ref(false) // Shows "thinking" before streaming starts
+
+  // Token usage tracking for last message
+  const lastMessageTokens = ref({
+    input: 0,
+    output: 0,
+    model: null,
+    cost: 0
+  })
 
   /**
    * Stop current streaming response
@@ -302,6 +332,17 @@ export const useChatStore = defineStore('chat', () => {
             currentConversation.value = data.conversation
           }
 
+          // Update token usage tracking
+          if (data.tokens_input !== undefined && data.tokens_output !== undefined) {
+            const cost = calculateCost(data.model, data.tokens_input, data.tokens_output)
+            lastMessageTokens.value = {
+              input: data.tokens_input,
+              output: data.tokens_output,
+              model: data.model,
+              cost: cost
+            }
+          }
+
           // Update tokens balance
           const authStore = useAuthStore()
           authStore.updateTokensBalance(data.tokens_balance)
@@ -399,6 +440,8 @@ export const useChatStore = defineStore('chat', () => {
     streamingContent,
     isStreaming,
     isThinking,
+    // Token usage
+    lastMessageTokens,
     // Assistant state
     currentAssistant,
     availableAssistants,

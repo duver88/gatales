@@ -363,11 +363,17 @@ class ChatController extends Controller
                 // Send done event
                 $this->sendSSE('done', [
                     'message_id' => $assistantMessage->id,
+                    'tokens_input' => $tokensInput,
+                    'tokens_output' => $tokensOutput,
                     'tokens_used' => $tokensInput + $tokensOutput,
                     'tokens_balance' => $newBalance,
+                    'model' => $assistant ? $assistant->model : 'gpt-4o-mini',
                     'conversation' => [
                         'id' => $conversation->id,
                         'title' => $conversation->title,
+                        'total_tokens' => $conversation->total_tokens,
+                        'total_tokens_input' => $conversation->total_tokens_input,
+                        'total_tokens_output' => $conversation->total_tokens_output,
                     ],
                 ]);
 

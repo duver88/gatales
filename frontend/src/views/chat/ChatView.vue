@@ -84,6 +84,48 @@ const conversationTitle = computed(() => {
   return chatStore.currentConversation?.title || 'Nueva conversacion'
 })
 
+// Token usage display
+const lastTokenInfo = computed(() => {
+  const tokens = chatStore.lastMessageTokens
+  if (!tokens.input && !tokens.output) return null
+  return {
+    input: tokens.input.toLocaleString('es-ES'),
+    output: tokens.output.toLocaleString('es-ES'),
+    cost: tokens.cost.toFixed(6)
+  }
+})
+
+const conversationTokenInfo = computed(() => {
+  const conv = chatStore.currentConversation
+  if (!conv?.total_tokens_input && !conv?.total_tokens_output) return null
+
+  // Calculate cost for conversation totals using the last model or default
+  const model = chatStore.lastMessageTokens.model || 'gpt-4o-mini'
+  const pricing = {
+    'gpt-5.2': { input: 1.25, output: 10.00 },
+    'gpt-5.2-mini': { input: 0.25, output: 2.00 },
+    'gpt-5.2-codex': { input: 1.50, output: 12.00 },
+    'gpt-5.1': { input: 1.25, output: 10.00 },
+    'gpt-5.1-mini': { input: 0.25, output: 2.00 },
+    'gpt-5': { input: 1.25, output: 10.00 },
+    'gpt-5-mini': { input: 0.25, output: 2.00 },
+    'gpt-4o': { input: 2.50, output: 10.00 },
+    'gpt-4o-mini': { input: 0.15, output: 0.60 },
+    'o1': { input: 15.00, output: 60.00 },
+    'o1-mini': { input: 3.00, output: 12.00 },
+  }
+  const modelPricing = pricing[model] || pricing['gpt-4o-mini']
+  const inputCost = ((conv.total_tokens_input || 0) / 1000000) * modelPricing.input
+  const outputCost = ((conv.total_tokens_output || 0) / 1000000) * modelPricing.output
+  const totalCost = inputCost + outputCost
+
+  return {
+    input: (conv.total_tokens_input || 0).toLocaleString('es-ES'),
+    output: (conv.total_tokens_output || 0).toLocaleString('es-ES'),
+    cost: totalCost.toFixed(6)
+  }
+})
+
 onMounted(async () => {
   // Set up resize listener
   window.addEventListener('resize', handleResize, { passive: true })
@@ -424,6 +466,12 @@ async function handleDeleteAvatar() {
             <span class="text-sm text-gatales-text-secondary truncate max-w-[150px] sm:max-w-[200px]">
               {{ conversationTitle }}
             </span>
+            <!-- Token usage info (desktop only) -->
+            <div v-if="lastTokenInfo" class="hidden lg:flex items-center gap-3 text-xs text-gatales-text-secondary">
+              <span class="text-gatales-accent">|</span>
+              <span>{{ lastTokenInfo.input }} in / {{ lastTokenInfo.output }} out</span>
+              <span class="text-green-400">${{ lastTokenInfo.cost }}</span>
+            </div>
           </div>
 
           <!-- Assistant Selector Button -->
@@ -443,6 +491,27 @@ async function handleDeleteAvatar() {
         </div>
 
         <div class="flex items-center gap-2 sm:gap-4">
+          <!-- Token Usage Stats (mobile-friendly popup) -->
+          <div v-if="lastTokenInfo || conversationTokenInfo" class="relative group">
+            <button class="p-1.5 rounded-lg hover:bg-gatales-input transition-colors text-gatales-text-secondary">
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+              </svg>
+            </button>
+            <!-- Popup on hover/focus -->
+            <div class="absolute right-0 mt-2 w-48 bg-gatales-sidebar border border-gatales-border rounded-lg shadow-lg py-2 px-3 z-50 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200">
+              <p class="text-xs font-medium text-gatales-text mb-2">Uso de tokens</p>
+              <div v-if="lastTokenInfo" class="text-xs text-gatales-text-secondary mb-1">
+                <span class="text-gatales-accent">Ultimo:</span> {{ lastTokenInfo.input }} in / {{ lastTokenInfo.output }} out
+                <span class="text-green-400 ml-1">${{ lastTokenInfo.cost }}</span>
+              </div>
+              <div v-if="conversationTokenInfo" class="text-xs text-gatales-text-secondary">
+                <span class="text-blue-400">Total:</span> {{ conversationTokenInfo.input }} in / {{ conversationTokenInfo.output }} out
+                <span class="text-green-400 ml-1">${{ conversationTokenInfo.cost }}</span>
+              </div>
+            </div>
+          </div>
+
           <!-- Token Indicator -->
           <TokenIndicator
             :balance="authStore.tokensBalance"
