@@ -75,27 +75,33 @@ const currentProviderModels = computed(() => {
 // Computed: check if DeepSeek is selected
 const isDeepSeek = computed(() => formData.value.provider === 'deepseek')
 
-// Computed to check if selected model doesn't support custom temperature (o1 and GPT-5)
+// Computed to check if selected model doesn't support custom temperature (o1 and GPT-5 only - DeepSeek DOES support it)
 const noTemperatureSupport = computed(() => {
+  if (isDeepSeek.value) return false // DeepSeek supports temperature
   const model = formData.value.model || ''
   return model.startsWith('o1') || model.startsWith('gpt-5')
 })
 
-// Computed to check if model uses new API format (GPT-5, o1)
+// Computed to check if model uses new API format (GPT-5, o1) - NOT DeepSeek
 // These models don't support sampling parameters (top_p, frequency_penalty, presence_penalty)
 const isNewModel = computed(() => {
+  if (isDeepSeek.value) return false // DeepSeek supports all sampling params
   const model = formData.value.model || ''
   return model.startsWith('gpt-5') || model.startsWith('o1')
 })
 
-// Computed: sampling parameters are not supported for new models
+// Computed: sampling parameters are not supported for new OpenAI models (but DeepSeek supports them)
 const noSamplingSupport = computed(() => isNewModel.value)
 
-// Computed to check if model supports reasoning effort (GPT-5 only)
+// Computed to check if model supports reasoning effort (GPT-5 only, not DeepSeek)
 const supportsReasoningEffort = computed(() => {
+  if (isDeepSeek.value) return false // DeepSeek has its own thinking mode, not reasoning_effort
   const model = formData.value.model || ''
   return model.startsWith('gpt-5')
 })
+
+// Computed: check if advanced params like seed/n_completions are supported (not for DeepSeek)
+const supportsAdvancedParams = computed(() => !isDeepSeek.value)
 
 // Computed to check if filesAssistant has reasoning conflict (GPT-5 with reasoning enabled)
 const hasReasoningConflict = computed(() => {
@@ -729,7 +735,12 @@ function getStatusText(status) {
               <p v-if="isNewModel" class="text-xs text-yellow-400 mb-3 p-2 bg-yellow-500/10 rounded">
                 Nota: Algunos parametros avanzados pueden no aplicar a GPT-5 y o1
               </p>
-              <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <p v-if="isDeepSeek" class="text-xs text-blue-400 mb-3 p-2 bg-blue-500/10 rounded">
+                DeepSeek: Seed y N Completions no estan soportados
+              </p>
+
+              <!-- Seed y N Completions - Solo OpenAI -->
+              <div v-if="supportsAdvancedParams" class="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label class="block text-sm font-medium text-gatales-text-secondary mb-1">Seed (reproducibilidad)</label>
                   <input v-model.number="formData.seed" type="number" class="input-field" placeholder="Dejar vacio para aleatorio" />
@@ -751,7 +762,7 @@ function getStatusText(status) {
                   <input v-model="formData.logprobs" type="checkbox" id="logprobs" class="accent-gatales-accent" />
                   <label for="logprobs" class="text-sm text-gatales-text">Log Probabilities</label>
                 </div>
-                <div class="flex items-center gap-2">
+                <div v-if="!isDeepSeek" class="flex items-center gap-2">
                   <input v-model="formData.include_user_id" type="checkbox" id="include_user_id" class="accent-gatales-accent" />
                   <label for="include_user_id" class="text-sm text-gatales-text">Incluir User ID</label>
                 </div>
