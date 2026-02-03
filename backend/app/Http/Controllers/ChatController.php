@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\Assistant;
 use App\Models\Conversation;
 use App\Models\Message;
+use App\Services\DeepSeekService;
 use App\Services\OpenAIService;
 use App\Services\TokenService;
 use Illuminate\Http\JsonResponse;
@@ -19,8 +20,20 @@ class ChatController extends Controller
 {
     public function __construct(
         private OpenAIService $openAIService,
+        private DeepSeekService $deepSeekService,
         private TokenService $tokenService
     ) {}
+
+    /**
+     * Get the appropriate AI service based on assistant's provider
+     */
+    private function getServiceForAssistant(?Assistant $assistant): OpenAIService|DeepSeekService
+    {
+        if ($assistant && $assistant->isDeepSeek()) {
+            return $this->deepSeekService;
+        }
+        return $this->openAIService;
+    }
 
     /**
      * Get messages for a specific conversation
@@ -128,8 +141,12 @@ class ChatController extends Controller
                 'tokens_output' => 0,
             ]);
 
-            // Send to OpenAI and get response
-            $response = $this->openAIService->sendMessage($user, $validated['message'], $conversation);
+            // Get the appropriate service based on assistant's provider
+            $assistant = $conversation->assistant ?? $user->getAssistant();
+            $aiService = $this->getServiceForAssistant($assistant);
+
+            // Send to AI and get response
+            $response = $aiService->sendMessage($user, $validated['message'], $conversation);
 
             // Save assistant response
             $assistantMessage = Message::create([
@@ -236,9 +253,10 @@ class ChatController extends Controller
 
         $message = $validated['message'];
         $assistant = $conversation->assistant ?? $user->getAssistant();
-        $usesResponsesApi = $assistant && $assistant->usesResponsesApi();
+        $isDeepSeek = $assistant && $assistant->isDeepSeek();
+        $usesResponsesApi = !$isDeepSeek && $assistant && $assistant->usesResponsesApi();
 
-        return new StreamedResponse(function () use ($user, $userId, $message, $conversation, $assistant, $usesResponsesApi) {
+        return new StreamedResponse(function () use ($user, $userId, $message, $conversation, $assistant, $usesResponsesApi, $isDeepSeek) {
             // Deshabilitar timeout de PHP para streaming largo (GPT-5 + Knowledge Base puede tardar varios minutos)
             set_time_limit(0);
 
@@ -290,7 +308,7 @@ class ChatController extends Controller
                 $messageId = null;
 
                 if ($usesResponsesApi) {
-                    // Use direct cURL streaming for Responses API (real-time)
+                    // Use direct cURL streaming for Responses API (real-time) - OpenAI only
                     $this->streamWithResponsesApi(
                         $user,
                         $message,
@@ -302,11 +320,17 @@ class ChatController extends Controller
                         $messageId
                     );
                 } else {
-                    // Use Chat Completions API streaming (works with generator)
-                    foreach ($this->openAIService->sendMessageStreamed($user, $message, $conversation) as $chunk) {
+                    // Use Chat Completions API streaming
+                    // Choose service based on provider
+                    $aiService = $isDeepSeek ? $this->deepSeekService : $this->openAIService;
+
+                    foreach ($aiService->sendMessageStreamed($user, $message, $conversation) as $chunk) {
                         if ($chunk['type'] === 'content') {
                             $fullContent .= $chunk['content'];
                             $this->sendSSE('content', ['text' => $chunk['content']]);
+                        } elseif ($chunk['type'] === 'reasoning') {
+                            // DeepSeek reasoner sends reasoning content
+                            $this->sendSSE('reasoning', ['text' => $chunk['content']]);
                         } elseif ($chunk['type'] === 'done') {
                             $tokensInput = $chunk['tokens_input'];
                             $tokensOutput = $chunk['tokens_output'];
@@ -367,6 +391,7 @@ class ChatController extends Controller
                     'tokens_output' => $tokensOutput,
                     'tokens_used' => $tokensInput + $tokensOutput,
                     'tokens_balance' => $newBalance,
+                    'provider' => $assistant ? ($assistant->provider ?? 'openai') : 'openai',
                     'model' => $assistant ? $assistant->model : 'gpt-4o-mini',
                     'conversation' => [
                         'id' => $conversation->id,

@@ -10,6 +10,7 @@ use Illuminate\Support\Facades\Cache;
 class Assistant extends Model
 {
     protected $fillable = [
+        'provider',
         'name',
         'slug',
         'description',
@@ -168,9 +169,47 @@ class Assistant extends Model
     }
 
     /**
-     * Get list of available models
+     * Get available providers
      */
-    public static function getAvailableModels(): array
+    public static function getAvailableProviders(): array
+    {
+        return [
+            'openai' => 'OpenAI (ChatGPT)',
+            'deepseek' => 'DeepSeek',
+        ];
+    }
+
+    /**
+     * Check if assistant uses OpenAI
+     */
+    public function isOpenAI(): bool
+    {
+        return ($this->provider ?? 'openai') === 'openai';
+    }
+
+    /**
+     * Check if assistant uses DeepSeek
+     */
+    public function isDeepSeek(): bool
+    {
+        return $this->provider === 'deepseek';
+    }
+
+    /**
+     * Get list of available models for a provider
+     */
+    public static function getAvailableModels(?string $provider = null): array
+    {
+        if ($provider === 'deepseek') {
+            return self::getDeepSeekModels();
+        }
+        return self::getOpenAIModels();
+    }
+
+    /**
+     * Get OpenAI models
+     */
+    public static function getOpenAIModels(): array
     {
         return [
             // GPT-5.2 (Ultimo - Enero 2026)
@@ -190,6 +229,17 @@ class Assistant extends Model
             // Modelos de razonamiento (o1)
             'o1' => 'o1 (Razonamiento avanzado)',
             'o1-mini' => 'o1-mini (Razonamiento rapido)',
+        ];
+    }
+
+    /**
+     * Get DeepSeek models
+     */
+    public static function getDeepSeekModels(): array
+    {
+        return [
+            'deepseek-chat' => 'DeepSeek Chat (V3.2 - Recomendado)',
+            'deepseek-reasoner' => 'DeepSeek Reasoner (Con razonamiento)',
         ];
     }
 

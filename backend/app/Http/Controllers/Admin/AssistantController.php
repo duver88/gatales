@@ -4,9 +4,11 @@ namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Models\Assistant;
+use App\Services\DeepSeekService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
 use OpenAI\Laravel\Facades\OpenAI;
 
@@ -24,7 +26,11 @@ class AssistantController extends Controller
         return response()->json([
             'success' => true,
             'assistants' => $assistants,
-            'available_models' => Assistant::getAvailableModels(),
+            'available_providers' => Assistant::getAvailableProviders(),
+            'available_models' => [
+                'openai' => Assistant::getOpenAIModels(),
+                'deepseek' => Assistant::getDeepSeekModels(),
+            ],
             'reasoning_effort_options' => Assistant::getReasoningEffortOptions(),
         ]);
     }
@@ -51,6 +57,7 @@ class AssistantController extends Controller
             'name' => 'required|string|max:255',
             'description' => 'nullable|string',
             'is_active' => 'boolean',
+            'provider' => 'string|in:openai,deepseek',
             'model' => 'required|string',
             'reasoning_effort' => 'string|in:none,minimal,low,medium,high,xhigh',
             'system_prompt' => 'required|string',
@@ -102,6 +109,7 @@ class AssistantController extends Controller
             'name' => 'sometimes|string|max:255',
             'description' => 'nullable|string',
             'is_active' => 'sometimes|boolean',
+            'provider' => 'sometimes|string|in:openai,deepseek',
             'model' => 'sometimes|string',
             'reasoning_effort' => 'sometimes|string|in:none,minimal,low,medium,high,xhigh',
             'system_prompt' => 'sometimes|string',
@@ -243,7 +251,12 @@ class AssistantController extends Controller
             // Add current user message
             $messages[] = ['role' => 'user', 'content' => $testMessage];
 
-            // Check if using Assistants API (knowledge base)
+            // Check if using DeepSeek
+            if ($assistant->isDeepSeek()) {
+                return $this->testWithDeepSeek($assistant, $messages, $settings);
+            }
+
+            // Check if using Assistants API (knowledge base) - OpenAI only
             if ($assistant->usesAssistantsApi()) {
                 $assistantService = app(\App\Services\OpenAIAssistantService::class);
                 $result = $assistantService->sendMessageForTest($testMessage, $assistant, $context);
@@ -253,11 +266,12 @@ class AssistantController extends Controller
                     'response' => $result['response'],
                     'usage' => $result['usage'] ?? null,
                     'model' => $settings['model'],
+                    'provider' => 'openai',
                     'used_knowledge_base' => true,
                 ]);
             }
 
-            // Regular Chat Completions API
+            // Regular Chat Completions API (OpenAI)
             $model = $settings['model'];
             $params = [
                 'model' => $model,
@@ -296,6 +310,7 @@ class AssistantController extends Controller
                     'total_tokens' => $response->usage->totalTokens ?? 0,
                 ],
                 'model' => $settings['model'],
+                'provider' => 'openai',
                 'used_knowledge_base' => false,
             ]);
         } catch (\Exception $e) {
@@ -304,5 +319,54 @@ class AssistantController extends Controller
                 'message' => 'Error: ' . $e->getMessage(),
             ], 500);
         }
+    }
+
+    /**
+     * Test with DeepSeek API
+     */
+    private function testWithDeepSeek(Assistant $assistant, array $messages, array $settings): JsonResponse
+    {
+        $apiKey = config('services.deepseek.api_key');
+
+        if (!$apiKey) {
+            return response()->json([
+                'success' => false,
+                'message' => 'DeepSeek API key not configured',
+            ], 500);
+        }
+
+        $params = [
+            'model' => $assistant->model,
+            'messages' => $messages,
+            'max_tokens' => (int) ($settings['max_tokens'] ?? 2000),
+            'temperature' => (float) ($settings['temperature'] ?? 0.7),
+        ];
+
+        $response = Http::withHeaders([
+            'Authorization' => 'Bearer ' . $apiKey,
+            'Content-Type' => 'application/json',
+        ])->timeout(120)->post('https://api.deepseek.com/chat/completions', $params);
+
+        if (!$response->successful()) {
+            return response()->json([
+                'success' => false,
+                'message' => 'DeepSeek API error: ' . $response->body(),
+            ], 500);
+        }
+
+        $data = $response->json();
+
+        return response()->json([
+            'success' => true,
+            'response' => $data['choices'][0]['message']['content'] ?? '',
+            'usage' => [
+                'prompt_tokens' => $data['usage']['prompt_tokens'] ?? 0,
+                'completion_tokens' => $data['usage']['completion_tokens'] ?? 0,
+                'total_tokens' => $data['usage']['total_tokens'] ?? 0,
+            ],
+            'model' => $assistant->model,
+            'provider' => 'deepseek',
+            'used_knowledge_base' => false,
+        ]);
     }
 }

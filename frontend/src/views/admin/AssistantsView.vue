@@ -3,6 +3,7 @@ import { ref, onMounted, computed } from 'vue'
 import { adminApi } from '../../services/api'
 
 const assistants = ref([])
+const availableProviders = ref({})
 const availableModels = ref({})
 const reasoningEffortOptions = ref({})
 const isLoading = ref(true)
@@ -38,6 +39,7 @@ const defaultFormData = {
   name: '',
   description: '',
   is_active: true,
+  provider: 'openai',
   model: 'gpt-4o-mini',
   reasoning_effort: 'minimal',
   system_prompt: 'Eres un asistente de IA util y amigable.',
@@ -63,6 +65,15 @@ const formData = ref({ ...defaultFormData })
 
 // Track which advanced section is expanded
 const showAdvanced = ref(false)
+
+// Computed: current provider's models
+const currentProviderModels = computed(() => {
+  const provider = formData.value.provider || 'openai'
+  return availableModels.value[provider] || {}
+})
+
+// Computed: check if DeepSeek is selected
+const isDeepSeek = computed(() => formData.value.provider === 'deepseek')
 
 // Computed to check if selected model doesn't support custom temperature (o1 and GPT-5)
 const noTemperatureSupport = computed(() => {
@@ -120,12 +131,28 @@ async function fetchAssistants() {
   try {
     const response = await adminApi.getAssistants()
     assistants.value = response.data.assistants
+    availableProviders.value = response.data.available_providers || {}
     availableModels.value = response.data.available_models || {}
     reasoningEffortOptions.value = response.data.reasoning_effort_options || {}
   } catch (e) {
     error.value = 'Error al cargar los asistentes'
   } finally {
     isLoading.value = false
+  }
+}
+
+// Watch provider changes to reset model
+function onProviderChange() {
+  const provider = formData.value.provider
+  const models = availableModels.value[provider] || {}
+  const modelKeys = Object.keys(models)
+  // Set first model of new provider
+  if (modelKeys.length > 0 && !models[formData.value.model]) {
+    formData.value.model = modelKeys[0]
+  }
+  // DeepSeek doesn't support knowledge base
+  if (provider === 'deepseek') {
+    formData.value.use_knowledge_base = false
   }
 }
 
@@ -403,6 +430,12 @@ function getStatusText(status) {
         </p>
 
         <div class="flex flex-wrap gap-2 text-xs text-gatales-text-secondary mb-4">
+          <span :class="[
+            'px-2 py-1 rounded font-medium',
+            assistant.provider === 'deepseek' ? 'bg-blue-500/20 text-blue-400' : 'bg-green-500/20 text-green-400'
+          ]">
+            {{ assistant.provider === 'deepseek' ? 'DeepSeek' : 'OpenAI' }}
+          </span>
           <span class="px-2 py-1 bg-gatales-input rounded">{{ assistant.model }}</span>
           <span class="px-2 py-1 bg-gatales-input rounded">
             Temp: {{ (assistant.model?.startsWith('o1') || assistant.model?.startsWith('gpt-5')) ? 'N/A' : assistant.temperature }}
@@ -502,18 +535,27 @@ function getStatusText(status) {
             <label for="is_active" class="text-sm text-gatales-text">Activo</label>
           </div>
 
-          <!-- Model & Basic Config -->
+          <!-- Provider & Model Config -->
           <div class="border-t border-gatales-border pt-4">
-            <h3 class="text-sm font-semibold text-gatales-text mb-3">Modelo y Configuracion Basica</h3>
+            <h3 class="text-sm font-semibold text-gatales-text mb-3">Proveedor y Modelo</h3>
             <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
-                <label class="block text-sm font-medium text-gatales-text-secondary mb-1">Modelo</label>
-                <select v-model="formData.model" class="input-field">
-                  <option v-for="(label, value) in availableModels" :key="value" :value="value">
+                <label class="block text-sm font-medium text-gatales-text-secondary mb-1">Proveedor de IA</label>
+                <select v-model="formData.provider" @change="onProviderChange" class="input-field">
+                  <option v-for="(label, value) in availableProviders" :key="value" :value="value">
                     {{ label }}
                   </option>
                 </select>
-                <p class="text-xs text-gatales-text-secondary mt-1">Modelo de OpenAI a utilizar</p>
+                <p class="text-xs text-gatales-text-secondary mt-1">OpenAI o DeepSeek</p>
+              </div>
+              <div>
+                <label class="block text-sm font-medium text-gatales-text-secondary mb-1">Modelo</label>
+                <select v-model="formData.model" class="input-field">
+                  <option v-for="(label, value) in currentProviderModels" :key="value" :value="value">
+                    {{ label }}
+                  </option>
+                </select>
+                <p class="text-xs text-gatales-text-secondary mt-1">Modelo de {{ formData.provider === 'deepseek' ? 'DeepSeek' : 'OpenAI' }} a utilizar</p>
               </div>
               <div>
                 <label class="block text-sm font-medium text-gatales-text-secondary mb-1">Max Tokens</label>
@@ -756,8 +798,23 @@ function getStatusText(status) {
         </div>
 
         <div class="p-4 space-y-4">
+          <!-- DeepSeek Warning -->
+          <div v-if="filesAssistant?.provider === 'deepseek'" class="p-4 bg-orange-500/20 border border-orange-500/30 rounded-lg">
+            <div class="flex items-start gap-3">
+              <svg class="w-5 h-5 text-orange-400 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+              </svg>
+              <div>
+                <h3 class="text-sm font-medium text-orange-400">DeepSeek no soporta Knowledge Base</h3>
+                <p class="text-xs text-orange-300/80 mt-1">
+                  Este asistente usa DeepSeek como proveedor. La base de conocimientos solo esta disponible para asistentes que usan OpenAI.
+                </p>
+              </div>
+            </div>
+          </div>
+
           <!-- Enable/Disable Toggle -->
-          <div class="flex items-center justify-between p-4 bg-gatales-input rounded-lg">
+          <div v-else class="flex items-center justify-between p-4 bg-gatales-input rounded-lg">
             <div>
               <h3 class="text-sm font-medium text-gatales-text">Habilitar Base de Conocimientos</h3>
               <p class="text-xs text-gatales-text-secondary mt-1">
@@ -785,8 +842,8 @@ function getStatusText(status) {
             </button>
           </div>
 
-          <!-- Content when KB is enabled -->
-          <template v-if="filesAssistant?.use_knowledge_base">
+          <!-- Content when KB is enabled (OpenAI only) -->
+          <template v-if="filesAssistant?.provider !== 'deepseek' && filesAssistant?.use_knowledge_base">
             <!-- Stats -->
             <div v-if="filesStats" class="grid grid-cols-4 gap-3">
               <div class="p-3 bg-gatales-input rounded-lg text-center">
@@ -888,8 +945,8 @@ function getStatusText(status) {
             </div>
           </template>
 
-          <!-- Info when KB is disabled -->
-          <div v-else class="text-center py-8 text-gatales-text-secondary">
+          <!-- Info when KB is disabled (OpenAI only) -->
+          <div v-if="filesAssistant?.provider !== 'deepseek' && !filesAssistant?.use_knowledge_base" class="text-center py-8 text-gatales-text-secondary">
             <svg class="w-16 h-16 mx-auto mb-4 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
             </svg>
