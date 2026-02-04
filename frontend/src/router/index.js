@@ -23,6 +23,7 @@ const WebhookLogsView = () => import('../views/admin/WebhookLogsView.vue')
 const AssistantsView = () => import('../views/admin/AssistantsView.vue')
 const AdminChatView = () => import('../views/admin/AdminChatView.vue')
 const EmailsView = () => import('../views/admin/EmailsView.vue')
+const AiSettingsView = () => import('../views/admin/AiSettingsView.vue')
 
 const routes = [
   // Public routes
@@ -137,6 +138,11 @@ const routes = [
         path: 'emails',
         name: 'admin-emails',
         component: EmailsView,
+      },
+      {
+        path: 'settings',
+        name: 'admin-settings',
+        component: AiSettingsView,
       },
     ],
   },
