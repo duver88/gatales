@@ -90,6 +90,10 @@ onMounted(async () => {
   handleResize()
 
   try {
+    // Refresh user data to get latest subscription/tokens info
+    // This ensures the UI shows correct data after admin changes
+    authStore.fetchUser(true)
+
     // Fetch conversations and assistants in PARALLEL for faster load
     const [conversationsResult] = await Promise.all([
       conversationsStore.fetchConversations(),
