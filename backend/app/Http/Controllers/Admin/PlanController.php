@@ -29,6 +29,7 @@ class PlanController extends Controller
                     'price' => $plan->price,
                     'duration_months' => $plan->duration_months ?? 1,
                     'hotmart_product_id' => $plan->hotmart_product_id,
+                    'hotmart_offer_code' => $plan->hotmart_offer_code,
                     'features' => $plan->features,
                     'is_active' => $plan->is_active,
                     'active_subscriptions' => $plan->active_subscriptions,
@@ -53,6 +54,7 @@ class PlanController extends Controller
             'price' => 'required|numeric|min:0',
             'duration_months' => 'integer|in:1,3,12',
             'hotmart_product_id' => 'nullable|string',
+            'hotmart_offer_code' => 'nullable|string|max:50',
             'features' => 'nullable|array',
             'is_active' => 'boolean',
         ]);
@@ -75,6 +77,7 @@ class PlanController extends Controller
             'price' => $validated['price'],
             'duration_months' => $validated['duration_months'] ?? 1,
             'hotmart_product_id' => $validated['hotmart_product_id'] ?? null,
+            'hotmart_offer_code' => $validated['hotmart_offer_code'] ?? null,
             'features' => $validated['features'] ?? [],
             'is_active' => $validated['is_active'] ?? true,
         ]);
@@ -97,6 +100,7 @@ class PlanController extends Controller
             'price' => 'sometimes|numeric|min:0',
             'duration_months' => 'sometimes|integer|in:1,3,12',
             'hotmart_product_id' => 'sometimes|nullable|string',
+            'hotmart_offer_code' => 'sometimes|nullable|string|max:50',
             'features' => 'sometimes|nullable|array',
             'is_active' => 'sometimes|boolean',
         ]);

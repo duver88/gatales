@@ -30,15 +30,24 @@ class WebhookController extends Controller
                 'email' => 'required|email',
                 'name' => 'required|string',
                 'product_id' => 'required|string',
+                'offer_code' => 'nullable|string',
                 'subscription_id' => 'nullable|string',
                 'transaction_id' => 'nullable|string',
             ]);
 
-            // Find the plan by Hotmart product ID
-            $plan = Plan::findByHotmartProductId($validated['product_id']);
+            // First try to find plan by offer code (more specific)
+            $plan = null;
+            if (!empty($validated['offer_code'])) {
+                $plan = Plan::findByOfferCode($validated['offer_code']);
+            }
 
+            // Fall back to product ID if no plan found by offer code
             if (!$plan) {
-                // If no plan found by product_id, use the basic plan
+                $plan = Plan::findByHotmartProductId($validated['product_id']);
+            }
+
+            // Final fallback to basic plan
+            if (!$plan) {
                 $plan = Plan::where('slug', 'basico')->first();
 
                 if (!$plan) {

@@ -17,6 +17,7 @@ class Plan extends Model
         'price',
         'duration_months',
         'hotmart_product_id',
+        'hotmart_offer_code',
         'features',
         'is_active',
     ];
@@ -46,6 +47,14 @@ class Plan extends Model
     public static function findByHotmartProductId(string $productId): ?self
     {
         return static::where('hotmart_product_id', $productId)->first();
+    }
+
+    /**
+     * Find plan by Hotmart offer code
+     */
+    public static function findByOfferCode(string $offerCode): ?self
+    {
+        return static::where('hotmart_offer_code', $offerCode)->first();
     }
 
     /**

@@ -15,6 +15,7 @@ const createForm = ref({
   price: 0,
   duration_months: 1,
   hotmart_product_id: '',
+  hotmart_offer_code: '',
   is_active: true,
 })
 
@@ -46,6 +47,7 @@ function startEdit(plan) {
     price: plan.price,
     duration_months: plan.duration_months || 1,
     hotmart_product_id: plan.hotmart_product_id || '',
+    hotmart_offer_code: plan.hotmart_offer_code || '',
     is_active: plan.is_active,
   }
 }
@@ -72,6 +74,7 @@ function openCreateModal() {
     price: 0,
     duration_months: 1,
     hotmart_product_id: '',
+    hotmart_offer_code: '',
     is_active: true,
   }
   showCreateModal.value = true
@@ -195,6 +198,10 @@ function formatPrice(price) {
               <span class="text-gatales-text-secondary">Hotmart ID</span>
               <span class="text-gatales-text font-medium text-sm">{{ plan.hotmart_product_id || '-' }}</span>
             </div>
+            <div class="flex justify-between">
+              <span class="text-gatales-text-secondary">Offer Code</span>
+              <span class="text-gatales-text font-medium text-sm font-mono">{{ plan.hotmart_offer_code || '-' }}</span>
+            </div>
           </div>
 
           <div class="flex gap-2">
@@ -251,6 +258,11 @@ function formatPrice(price) {
               <label class="block text-sm text-gatales-text-secondary mb-1">Hotmart Product ID</label>
               <input v-model="editForm.hotmart_product_id" type="text" class="input-field text-sm" />
             </div>
+            <div>
+              <label class="block text-sm text-gatales-text-secondary mb-1">Hotmart Offer Code</label>
+              <input v-model="editForm.hotmart_offer_code" type="text" class="input-field text-sm font-mono" placeholder="ej: j8kbw6d6" />
+              <p class="text-xs text-gatales-text-secondary mt-1">Código de oferta de Hotmart (off=xxx en la URL)</p>
+            </div>
             <div class="flex items-center gap-2">
               <input v-model="editForm.is_active" type="checkbox" id="is_active" class="w-4 h-4" />
               <label for="is_active" class="text-sm text-gatales-text">Plan activo</label>
@@ -298,6 +310,11 @@ function formatPrice(price) {
           <div>
             <label class="block text-sm text-gatales-text-secondary mb-1">Hotmart Product ID</label>
             <input v-model="createForm.hotmart_product_id" type="text" class="input-field text-sm" placeholder="Opcional" />
+          </div>
+          <div>
+            <label class="block text-sm text-gatales-text-secondary mb-1">Hotmart Offer Code</label>
+            <input v-model="createForm.hotmart_offer_code" type="text" class="input-field text-sm font-mono" placeholder="ej: j8kbw6d6" />
+            <p class="text-xs text-gatales-text-secondary mt-1">Código de oferta de Hotmart (off=xxx en la URL)</p>
           </div>
           <div class="flex items-center gap-2">
             <input v-model="createForm.is_active" type="checkbox" id="create_is_active" class="w-4 h-4" />
