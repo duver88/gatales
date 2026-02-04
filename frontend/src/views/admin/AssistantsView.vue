@@ -747,7 +747,10 @@ function getStatusText(status) {
                 <p class="text-xs text-gatales-text-secondary mt-1">Define como debe comportarse y responder el asistente</p>
               </div>
               <div class="flex items-center gap-2">
-                <span :class="['text-xs px-2 py-1 rounded', formData.system_prompt.length > 4000 ? 'bg-red-500/20 text-red-400' : 'bg-gatales-input text-gatales-text-secondary']">
+                <span :class="['text-xs px-2 py-1 rounded',
+                  formData.system_prompt.length > 15000 ? 'bg-red-500/20 text-red-400' :
+                  formData.system_prompt.length > 8000 ? 'bg-yellow-500/20 text-yellow-400' :
+                  'bg-green-500/20 text-green-400']">
                   {{ formData.system_prompt.length }} caracteres
                 </span>
                 <button
@@ -1186,7 +1189,10 @@ function getStatusText(status) {
           <span :class="['text-xs px-2 py-1 rounded', isDeepSeek ? 'bg-blue-500/20 text-blue-400' : 'bg-green-500/20 text-green-400']">
             {{ isDeepSeek ? 'DeepSeek' : 'OpenAI GPT' }}
           </span>
-          <span :class="['text-xs px-2 py-1 rounded', formData.system_prompt.length > 4000 ? 'bg-red-500/20 text-red-400' : 'bg-gatales-input text-gatales-text-secondary']">
+          <span :class="['text-xs px-2 py-1 rounded',
+            formData.system_prompt.length > 15000 ? 'bg-red-500/20 text-red-400' :
+            formData.system_prompt.length > 8000 ? 'bg-yellow-500/20 text-yellow-400' :
+            'bg-green-500/20 text-green-400']">
             {{ formData.system_prompt.length }} caracteres
           </span>
         </div>
