@@ -3,16 +3,12 @@
 namespace App\Mail;
 
 use App\Models\User;
-use Illuminate\Bus\Queueable;
-use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Mail\Mailable;
 use Illuminate\Mail\Mailables\Content;
 use Illuminate\Mail\Mailables\Envelope;
-use Illuminate\Queue\SerializesModels;
 
-class SetPasswordMail extends Mailable implements ShouldQueue
+class SetPasswordMail extends Mailable
 {
-    use Queueable, SerializesModels;
 
     public User $user;
     public string $token;
