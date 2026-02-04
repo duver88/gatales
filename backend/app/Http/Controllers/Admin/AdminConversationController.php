@@ -836,11 +836,11 @@ class AdminConversationController extends Controller
 
                 // Record admin token usage
                 $this->tokenService->recordAdminUsage(
-                    $admin->id,
+                    $adminId,
                     $tokensInput,
                     $tokensOutput,
                     $provider,
-                    $assistant->id
+                    $assistantId
                 );
 
                 if ($isFirstMessage) {
