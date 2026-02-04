@@ -129,6 +129,7 @@ const groupedSettings = computed(() => {
     response: { title: 'Opciones de Respuesta', icon: 'chat', items: [] },
     advanced: { title: 'Configuracion Avanzada', icon: 'code', items: [] },
     assistant: { title: 'Asistente y Contexto', icon: 'user', items: [] },
+    email: { title: 'Supervision de Correos', icon: 'mail', items: [] },
   }
 
   const categoryMap = {
@@ -156,6 +157,8 @@ const groupedSettings = computed(() => {
     'assistant_name': 'assistant',
     'welcome_message': 'assistant',
     'context_messages': 'assistant',
+    // Email Supervision
+    'supervision_email': 'email',
   }
 
   settings.value.forEach(setting => {
@@ -367,6 +370,29 @@ function updateSetting(key, value) {
           <template v-for="setting in groupedSettings.assistant.items" :key="setting.key">
             <SettingField :setting="setting" @update="updateSetting" />
           </template>
+        </div>
+      </div>
+
+      <!-- Email Supervision -->
+      <div v-if="groupedSettings.email.items.length" class="card">
+        <div class="flex items-center gap-2 mb-4">
+          <svg class="w-5 h-5 text-gatales-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+          </svg>
+          <h2 class="text-lg font-semibold text-gatales-text">{{ groupedSettings.email.title }}</h2>
+        </div>
+        <p class="text-sm text-gatales-text-secondary mb-4">
+          Configura un email de supervision para recibir una copia de todos los correos enviados por la aplicacion. Util para verificar que los emails se envian correctamente.
+        </p>
+        <div class="space-y-4">
+          <template v-for="setting in groupedSettings.email.items" :key="setting.key">
+            <SettingField :setting="setting" @update="updateSetting" />
+          </template>
+        </div>
+        <div class="mt-4 p-3 bg-yellow-500/10 border border-yellow-500/30 rounded-lg">
+          <p class="text-xs text-yellow-400">
+            <strong>Nota:</strong> Los correos de supervision se envian como copia con el prefijo [SUPERVISION] en el asunto. Incluyen informacion del destinatario original.
+          </p>
         </div>
       </div>
 
