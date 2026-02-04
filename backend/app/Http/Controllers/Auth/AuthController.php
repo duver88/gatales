@@ -90,7 +90,17 @@ class AuthController extends Controller
         ]);
 
         // Send password reset email
-        Mail::to($user->email)->send(new PasswordResetMail($user, $token));
+        try {
+            Mail::to($user->email)->send(new PasswordResetMail($user, $token));
+            \Log::info('Password reset email sent successfully', ['email' => $user->email]);
+        } catch (\Exception $e) {
+            \Log::error('Failed to send password reset email', [
+                'email' => $user->email,
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+            ]);
+            // Still return success to prevent email enumeration
+        }
 
         return response()->json([
             'success' => true,
