@@ -787,19 +787,19 @@ function getStatusText(status) {
 
             <!-- Quick Templates -->
             <div class="mb-4">
-              <label class="block text-xs font-medium text-gatales-text-secondary mb-2">Plantillas rapidas:</label>
+              <label class="block text-xs font-medium text-gatales-text-secondary mb-2">Plantillas:</label>
               <div class="flex flex-wrap gap-2">
                 <button type="button" @click="applyPromptTemplate('guiones')" class="text-xs px-3 py-1.5 bg-gatales-input hover:bg-gatales-border rounded transition-colors text-gatales-text">
                   Guionista
                 </button>
                 <button type="button" @click="applyPromptTemplate('asistente')" class="text-xs px-3 py-1.5 bg-gatales-input hover:bg-gatales-border rounded transition-colors text-gatales-text">
-                  Asistente General
+                  Asistente
                 </button>
                 <button type="button" @click="applyPromptTemplate('experto')" class="text-xs px-3 py-1.5 bg-gatales-input hover:bg-gatales-border rounded transition-colors text-gatales-text">
-                  Experto Tecnico
+                  Experto
                 </button>
                 <button type="button" @click="applyPromptTemplate('creativo')" class="text-xs px-3 py-1.5 bg-gatales-input hover:bg-gatales-border rounded transition-colors text-gatales-text">
-                  Escritor Creativo
+                  Creativo
                 </button>
               </div>
             </div>
@@ -1208,91 +1208,198 @@ function getStatusText(status) {
           ></textarea>
         </div>
 
-        <!-- Right: Tips & Templates -->
-        <div class="w-80 border-l border-gatales-border bg-gatales-sidebar overflow-y-auto p-4 space-y-4">
-          <!-- Provider Tips -->
-          <div>
-            <h3 class="text-sm font-semibold text-gatales-text mb-3 flex items-center gap-2">
-              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
-              </svg>
-              Tips para {{ isDeepSeek ? 'DeepSeek' : 'GPT' }}
-            </h3>
-            <div v-if="isDeepSeek" class="text-xs text-gatales-text-secondary space-y-2">
-              <p>• Usa instrucciones <strong class="text-blue-400">directas y claras</strong></p>
-              <p>• Formato de <strong class="text-blue-400">lista numerada</strong> funciona mejor</p>
-              <p>• Especifica <strong class="text-blue-400">"Responde siempre en español"</strong></p>
-              <p>• Evita prompts muy largos, se <strong class="text-blue-400">conciso</strong></p>
-              <p>• Usa <strong class="text-blue-400">ejemplos cortos</strong> si necesitas</p>
-            </div>
-            <div v-else class="text-xs text-gatales-text-secondary space-y-2">
-              <p>• Usa <strong class="text-green-400">## Encabezados</strong> para organizar</p>
-              <p>• Puedes ser <strong class="text-green-400">detallado y especifico</strong></p>
-              <p>• Incluye <strong class="text-green-400">ejemplos de conversacion</strong></p>
-              <p>• Define <strong class="text-green-400">personalidad y tono</strong> claramente</p>
-              <p>• Usa <strong class="text-green-400">markdown</strong> para formato</p>
-            </div>
-          </div>
-
-          <!-- Structure Guide -->
-          <div>
-            <h3 class="text-sm font-semibold text-gatales-text mb-3">Estructura Recomendada</h3>
-            <div class="space-y-2 text-xs">
-              <div class="flex items-center gap-2 text-gatales-text-secondary">
-                <span class="w-3 h-3 rounded-full bg-green-500 shrink-0"></span>
-                <span><strong>## ROL</strong> - Quien es el asistente</span>
+        <!-- Right: Tips & Templates Panel -->
+        <div class="w-96 border-l border-gatales-border bg-gatales-sidebar overflow-y-auto">
+          <!-- Model Info Header -->
+          <div :class="['p-4 border-b border-gatales-border', isDeepSeek ? 'bg-blue-500/5' : 'bg-green-500/5']">
+            <div class="flex items-center gap-3 mb-2">
+              <div :class="['w-8 h-8 rounded-lg flex items-center justify-center', isDeepSeek ? 'bg-blue-500/20' : 'bg-green-500/20']">
+                <svg class="w-4 h-4" :class="isDeepSeek ? 'text-blue-400' : 'text-green-400'" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                </svg>
               </div>
-              <div class="flex items-center gap-2 text-gatales-text-secondary">
-                <span class="w-3 h-3 rounded-full bg-blue-500 shrink-0"></span>
-                <span><strong>## PERSONALIDAD</strong> - Tono y estilo</span>
-              </div>
-              <div class="flex items-center gap-2 text-gatales-text-secondary">
-                <span class="w-3 h-3 rounded-full bg-yellow-500 shrink-0"></span>
-                <span><strong>## INSTRUCCIONES</strong> - Que debe hacer</span>
-              </div>
-              <div class="flex items-center gap-2 text-gatales-text-secondary">
-                <span class="w-3 h-3 rounded-full bg-purple-500 shrink-0"></span>
-                <span><strong>## FORMATO</strong> - Como responder</span>
-              </div>
-              <div class="flex items-center gap-2 text-gatales-text-secondary">
-                <span class="w-3 h-3 rounded-full bg-orange-500 shrink-0"></span>
-                <span><strong>## EJEMPLOS</strong> - Casos de uso</span>
-              </div>
-              <div class="flex items-center gap-2 text-gatales-text-secondary">
-                <span class="w-3 h-3 rounded-full bg-red-500 shrink-0"></span>
-                <span><strong>## RESTRICCIONES</strong> - Que evitar</span>
+              <div>
+                <h3 class="text-sm font-semibold text-gatales-text">{{ isDeepSeek ? 'DeepSeek' : 'OpenAI GPT' }}</h3>
+                <p class="text-xs text-gatales-text-secondary">{{ formData.model }}</p>
               </div>
             </div>
           </div>
 
-          <!-- Templates -->
-          <div>
-            <h3 class="text-sm font-semibold text-gatales-text mb-3">Plantillas</h3>
-            <div class="space-y-2">
-              <button type="button" @click="applyPromptTemplate('guiones')" class="w-full text-left text-xs px-3 py-2 bg-gatales-input hover:bg-gatales-border rounded transition-colors text-gatales-text">
-                📝 Guionista de Videos
-              </button>
-              <button type="button" @click="applyPromptTemplate('asistente')" class="w-full text-left text-xs px-3 py-2 bg-gatales-input hover:bg-gatales-border rounded transition-colors text-gatales-text">
-                🤖 Asistente General
-              </button>
-              <button type="button" @click="applyPromptTemplate('experto')" class="w-full text-left text-xs px-3 py-2 bg-gatales-input hover:bg-gatales-border rounded transition-colors text-gatales-text">
-                💻 Experto Tecnico
-              </button>
-              <button type="button" @click="applyPromptTemplate('creativo')" class="w-full text-left text-xs px-3 py-2 bg-gatales-input hover:bg-gatales-border rounded transition-colors text-gatales-text">
-                ✨ Escritor Creativo
-              </button>
+          <div class="p-4 space-y-5">
+            <!-- Model Capabilities -->
+            <div>
+              <h4 class="text-xs font-semibold text-gatales-text-secondary uppercase tracking-wider mb-3">Capacidades del modelo</h4>
+              <div class="space-y-2">
+                <div class="flex items-center justify-between text-xs">
+                  <span class="text-gatales-text-secondary">Prompts largos</span>
+                  <span :class="isDeepSeek ? 'text-yellow-400' : 'text-green-400'">{{ isDeepSeek ? 'Moderado' : 'Excelente' }}</span>
+                </div>
+                <div class="flex items-center justify-between text-xs">
+                  <span class="text-gatales-text-secondary">Seguir instrucciones</span>
+                  <span :class="isDeepSeek ? 'text-green-400' : 'text-green-400'">{{ isDeepSeek ? 'Muy bueno' : 'Excelente' }}</span>
+                </div>
+                <div class="flex items-center justify-between text-xs">
+                  <span class="text-gatales-text-secondary">Creatividad</span>
+                  <span class="text-green-400">{{ isDeepSeek ? 'Bueno' : 'Excelente' }}</span>
+                </div>
+                <div class="flex items-center justify-between text-xs">
+                  <span class="text-gatales-text-secondary">Costo por token</span>
+                  <span :class="isDeepSeek ? 'text-green-400' : 'text-yellow-400'">{{ isDeepSeek ? 'Bajo' : 'Medio-Alto' }}</span>
+                </div>
+              </div>
             </div>
-          </div>
 
-          <!-- Quick Insert -->
-          <div>
-            <h3 class="text-sm font-semibold text-gatales-text mb-3">Insertar Rapido</h3>
-            <div class="flex flex-wrap gap-1">
-              <button type="button" @click="formData.system_prompt += '\n\n## ROL\n'" class="text-xs px-2 py-1 bg-green-500/20 text-green-400 rounded hover:bg-green-500/30">## ROL</button>
-              <button type="button" @click="formData.system_prompt += '\n\n## PERSONALIDAD\n'" class="text-xs px-2 py-1 bg-blue-500/20 text-blue-400 rounded hover:bg-blue-500/30">## PERSONALIDAD</button>
-              <button type="button" @click="formData.system_prompt += '\n\n## INSTRUCCIONES\n'" class="text-xs px-2 py-1 bg-yellow-500/20 text-yellow-400 rounded hover:bg-yellow-500/30">## INSTRUCCIONES</button>
-              <button type="button" @click="formData.system_prompt += '\n\n## FORMATO\n'" class="text-xs px-2 py-1 bg-purple-500/20 text-purple-400 rounded hover:bg-purple-500/30">## FORMATO</button>
-              <button type="button" @click="formData.system_prompt += '\n\n## RESTRICCIONES\n'" class="text-xs px-2 py-1 bg-red-500/20 text-red-400 rounded hover:bg-red-500/30">## RESTRICCIONES</button>
+            <!-- Best Practices -->
+            <div>
+              <h4 class="text-xs font-semibold text-gatales-text-secondary uppercase tracking-wider mb-3">Mejores practicas</h4>
+              <div v-if="isDeepSeek" class="space-y-2 text-xs text-gatales-text-secondary">
+                <div class="flex gap-2">
+                  <span class="text-blue-400 shrink-0">1.</span>
+                  <span>Usa instrucciones <strong class="text-gatales-text">directas y concisas</strong></span>
+                </div>
+                <div class="flex gap-2">
+                  <span class="text-blue-400 shrink-0">2.</span>
+                  <span>Formato de <strong class="text-gatales-text">lista numerada</strong> para pasos</span>
+                </div>
+                <div class="flex gap-2">
+                  <span class="text-blue-400 shrink-0">3.</span>
+                  <span>Especifica el <strong class="text-gatales-text">idioma de respuesta</strong></span>
+                </div>
+                <div class="flex gap-2">
+                  <span class="text-blue-400 shrink-0">4.</span>
+                  <span>Evita prompts excesivamente largos</span>
+                </div>
+                <div class="flex gap-2">
+                  <span class="text-blue-400 shrink-0">5.</span>
+                  <span>Incluye <strong class="text-gatales-text">ejemplos breves</strong> si es necesario</span>
+                </div>
+              </div>
+              <div v-else class="space-y-2 text-xs text-gatales-text-secondary">
+                <div class="flex gap-2">
+                  <span class="text-green-400 shrink-0">1.</span>
+                  <span>Usa <strong class="text-gatales-text">## Encabezados</strong> para estructurar</span>
+                </div>
+                <div class="flex gap-2">
+                  <span class="text-green-400 shrink-0">2.</span>
+                  <span>Puedes ser <strong class="text-gatales-text">detallado y especifico</strong></span>
+                </div>
+                <div class="flex gap-2">
+                  <span class="text-green-400 shrink-0">3.</span>
+                  <span>Incluye <strong class="text-gatales-text">ejemplos de conversacion</strong></span>
+                </div>
+                <div class="flex gap-2">
+                  <span class="text-green-400 shrink-0">4.</span>
+                  <span>Define claramente <strong class="text-gatales-text">personalidad y tono</strong></span>
+                </div>
+                <div class="flex gap-2">
+                  <span class="text-green-400 shrink-0">5.</span>
+                  <span>Usa <strong class="text-gatales-text">markdown</strong> para formato</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- Structure Guide -->
+            <div>
+              <h4 class="text-xs font-semibold text-gatales-text-secondary uppercase tracking-wider mb-3">Estructura recomendada</h4>
+              <div class="space-y-1.5">
+                <button
+                  type="button"
+                  @click="formData.system_prompt += '\n\n## ROL\n'"
+                  class="w-full flex items-center gap-2 text-xs px-3 py-2 bg-gatales-input hover:bg-gatales-border rounded transition-colors text-left"
+                >
+                  <span class="w-2 h-2 rounded-full bg-green-500 shrink-0"></span>
+                  <span class="text-gatales-text font-medium">ROL</span>
+                  <span class="text-gatales-text-secondary ml-auto">Quien es</span>
+                </button>
+                <button
+                  type="button"
+                  @click="formData.system_prompt += '\n\n## PERSONALIDAD\n'"
+                  class="w-full flex items-center gap-2 text-xs px-3 py-2 bg-gatales-input hover:bg-gatales-border rounded transition-colors text-left"
+                >
+                  <span class="w-2 h-2 rounded-full bg-blue-500 shrink-0"></span>
+                  <span class="text-gatales-text font-medium">PERSONALIDAD</span>
+                  <span class="text-gatales-text-secondary ml-auto">Tono y estilo</span>
+                </button>
+                <button
+                  type="button"
+                  @click="formData.system_prompt += '\n\n## INSTRUCCIONES\n'"
+                  class="w-full flex items-center gap-2 text-xs px-3 py-2 bg-gatales-input hover:bg-gatales-border rounded transition-colors text-left"
+                >
+                  <span class="w-2 h-2 rounded-full bg-yellow-500 shrink-0"></span>
+                  <span class="text-gatales-text font-medium">INSTRUCCIONES</span>
+                  <span class="text-gatales-text-secondary ml-auto">Que hacer</span>
+                </button>
+                <button
+                  type="button"
+                  @click="formData.system_prompt += '\n\n## FORMATO\n'"
+                  class="w-full flex items-center gap-2 text-xs px-3 py-2 bg-gatales-input hover:bg-gatales-border rounded transition-colors text-left"
+                >
+                  <span class="w-2 h-2 rounded-full bg-purple-500 shrink-0"></span>
+                  <span class="text-gatales-text font-medium">FORMATO</span>
+                  <span class="text-gatales-text-secondary ml-auto">Como responder</span>
+                </button>
+                <button
+                  type="button"
+                  @click="formData.system_prompt += '\n\n## RESTRICCIONES\n'"
+                  class="w-full flex items-center gap-2 text-xs px-3 py-2 bg-gatales-input hover:bg-gatales-border rounded transition-colors text-left"
+                >
+                  <span class="w-2 h-2 rounded-full bg-red-500 shrink-0"></span>
+                  <span class="text-gatales-text font-medium">RESTRICCIONES</span>
+                  <span class="text-gatales-text-secondary ml-auto">Que evitar</span>
+                </button>
+              </div>
+            </div>
+
+            <!-- Templates -->
+            <div>
+              <h4 class="text-xs font-semibold text-gatales-text-secondary uppercase tracking-wider mb-3">Plantillas predefinidas</h4>
+              <div class="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  @click="applyPromptTemplate('guiones')"
+                  class="flex flex-col items-start gap-1 text-xs p-3 bg-gatales-input hover:bg-gatales-border rounded-lg transition-colors text-left"
+                >
+                  <span class="text-gatales-text font-medium">Guionista</span>
+                  <span class="text-gatales-text-secondary text-[10px]">Videos y redes sociales</span>
+                </button>
+                <button
+                  type="button"
+                  @click="applyPromptTemplate('asistente')"
+                  class="flex flex-col items-start gap-1 text-xs p-3 bg-gatales-input hover:bg-gatales-border rounded-lg transition-colors text-left"
+                >
+                  <span class="text-gatales-text font-medium">Asistente</span>
+                  <span class="text-gatales-text-secondary text-[10px]">Uso general</span>
+                </button>
+                <button
+                  type="button"
+                  @click="applyPromptTemplate('experto')"
+                  class="flex flex-col items-start gap-1 text-xs p-3 bg-gatales-input hover:bg-gatales-border rounded-lg transition-colors text-left"
+                >
+                  <span class="text-gatales-text font-medium">Experto</span>
+                  <span class="text-gatales-text-secondary text-[10px]">Tecnico especializado</span>
+                </button>
+                <button
+                  type="button"
+                  @click="applyPromptTemplate('creativo')"
+                  class="flex flex-col items-start gap-1 text-xs p-3 bg-gatales-input hover:bg-gatales-border rounded-lg transition-colors text-left"
+                >
+                  <span class="text-gatales-text font-medium">Creativo</span>
+                  <span class="text-gatales-text-secondary text-[10px]">Escritura y contenido</span>
+                </button>
+              </div>
+            </div>
+
+            <!-- Model-specific notes -->
+            <div :class="['p-3 rounded-lg text-xs', isDeepSeek ? 'bg-blue-500/10 border border-blue-500/20' : 'bg-green-500/10 border border-green-500/20']">
+              <p :class="['font-medium mb-1', isDeepSeek ? 'text-blue-400' : 'text-green-400']">
+                {{ isDeepSeek ? 'Nota para DeepSeek' : 'Nota para GPT' }}
+              </p>
+              <p v-if="isDeepSeek" class="text-gatales-text-secondary">
+                DeepSeek funciona mejor con instrucciones concisas. Evita bloques de texto muy extensos y prioriza la claridad sobre el detalle.
+              </p>
+              <p v-else class="text-gatales-text-secondary">
+                GPT puede procesar instrucciones complejas y detalladas. Aprovecha la estructuracion con markdown y ejemplos para mejores resultados.
+              </p>
             </div>
           </div>
         </div>
