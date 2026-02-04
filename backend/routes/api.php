@@ -32,6 +32,8 @@ use App\Http\Controllers\ConversationController;
 Route::prefix('auth')->group(function () {
     Route::post('/set-password', [AuthController::class, 'setPassword'])->middleware('throttle:5,1'); // 5 attempts per minute
     Route::post('/login', [AuthController::class, 'login'])->middleware('throttle:5,1'); // 5 attempts per minute
+    Route::post('/forgot-password', [AuthController::class, 'forgotPassword'])->middleware('throttle:3,1'); // 3 attempts per minute
+    Route::post('/reset-password', [AuthController::class, 'resetPassword'])->middleware('throttle:5,1'); // 5 attempts per minute
 });
 
 // Webhooks (Protected by API Key middleware)

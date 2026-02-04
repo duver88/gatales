@@ -84,7 +84,8 @@ class WebhookController extends Controller
                 ->where('status', 'active')
                 ->update(['status' => 'cancelled', 'cancelled_at' => now()]);
 
-            // Create new subscription
+            // Create new subscription (duration based on plan)
+            $durationMonths = $plan->duration_months ?? 1;
             Subscription::create([
                 'user_id' => $user->id,
                 'plan_id' => $plan->id,
@@ -92,7 +93,7 @@ class WebhookController extends Controller
                 'hotmart_subscription_id' => $validated['subscription_id'] ?? null,
                 'hotmart_transaction_id' => $validated['transaction_id'] ?? null,
                 'starts_at' => now(),
-                'ends_at' => now()->addMonth(),
+                'ends_at' => now()->addMonths($durationMonths),
             ]);
 
             // Clear plan cache so hasFreePlan() returns updated value
@@ -214,13 +215,14 @@ class WebhookController extends Controller
                 throw new \Exception('No se encontró suscripción activa');
             }
 
-            // Reset tokens for the new month
+            // Reset tokens for the new period
             $user->resetMonthlyTokens($subscription->plan->tokens_monthly);
             $user->update(['status' => 'active']);
 
-            // Update subscription end date
+            // Update subscription end date (based on plan duration)
+            $durationMonths = $subscription->plan->duration_months ?? 1;
             $subscription->update([
-                'ends_at' => now()->addMonth(),
+                'ends_at' => now()->addMonths($durationMonths),
             ]);
 
             // Clear plan cache for consistency

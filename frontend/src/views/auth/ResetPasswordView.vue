@@ -1,27 +1,43 @@
 <script setup>
-import { ref } from 'vue'
-import { useRouter } from 'vue-router'
+import { ref, onMounted } from 'vue'
+import { useRouter, useRoute } from 'vue-router'
 import { useAuthStore } from '../../stores/auth'
 
 const router = useRouter()
+const route = useRoute()
 const authStore = useAuthStore()
 
-const email = ref('')
 const password = ref('')
+const passwordConfirmation = ref('')
 const errorMessage = ref('')
+const token = ref('')
+
+onMounted(() => {
+  token.value = route.query.token || ''
+
+  if (!token.value) {
+    errorMessage.value = 'El enlace no es valido. Por favor verifica el link en tu email.'
+  }
+})
 
 async function handleSubmit() {
   errorMessage.value = ''
 
+  if (password.value !== passwordConfirmation.value) {
+    errorMessage.value = 'Las contrasenas no coinciden'
+    return
+  }
+
+  if (password.value.length < 8) {
+    errorMessage.value = 'La contrasena debe tener al menos 8 caracteres'
+    return
+  }
+
   try {
-    await authStore.login(email.value, password.value)
+    await authStore.resetPassword(token.value, password.value, passwordConfirmation.value)
     router.push('/chat')
   } catch (e) {
-    if (e.response?.data?.status === 'inactive') {
-      router.push('/account-inactive')
-    } else {
-      errorMessage.value = e.response?.data?.message || 'Error al iniciar sesión'
-    }
+    errorMessage.value = e.response?.data?.message || 'Error al restablecer la contrasena'
   }
 }
 </script>
@@ -42,11 +58,14 @@ async function handleSubmit() {
         <p class="text-sm sm:text-base text-gatales-text-secondary mt-2">Tu asistente de guiones de video</p>
       </div>
 
-      <!-- Login Card -->
+      <!-- Reset Password Card -->
       <div class="card">
-        <h2 class="text-lg sm:text-xl font-semibold text-gatales-text mb-5 sm:mb-6 text-center">
-          Iniciar sesion
+        <h2 class="text-lg sm:text-xl font-semibold text-gatales-text mb-2 text-center">
+          Nueva contrasena
         </h2>
+        <p class="text-sm sm:text-base text-gatales-text-secondary text-center mb-5 sm:mb-6">
+          Ingresa tu nueva contrasena
+        </p>
 
         <form @submit.prevent="handleSubmit" class="space-y-4">
           <!-- Error message -->
@@ -57,68 +76,59 @@ async function handleSubmit() {
             {{ errorMessage }}
           </div>
 
-          <!-- Email -->
-          <div>
-            <label for="email" class="block text-sm font-medium text-gatales-text-secondary mb-1">
-              Email
-            </label>
-            <input
-              id="email"
-              v-model="email"
-              type="email"
-              required
-              autocomplete="email"
-              inputmode="email"
-              class="input-field text-base"
-              placeholder="tu@email.com"
-            />
-          </div>
-
           <!-- Password -->
           <div>
-            <div class="flex justify-between items-center mb-1">
-              <label for="password" class="block text-sm font-medium text-gatales-text-secondary">
-                Contrasena
-              </label>
-              <router-link
-                to="/forgot-password"
-                class="text-xs text-gatales-accent hover:underline active:opacity-80"
-              >
-                Olvide mi contrasena
-              </router-link>
-            </div>
+            <label for="password" class="block text-sm font-medium text-gatales-text-secondary mb-1">
+              Nueva contrasena
+            </label>
             <input
               id="password"
               v-model="password"
               type="password"
               required
-              autocomplete="current-password"
+              minlength="8"
+              autocomplete="new-password"
               class="input-field text-base"
-              placeholder="••••••••"
+              placeholder="Minimo 8 caracteres"
+            />
+          </div>
+
+          <!-- Password Confirmation -->
+          <div>
+            <label for="passwordConfirmation" class="block text-sm font-medium text-gatales-text-secondary mb-1">
+              Confirmar contrasena
+            </label>
+            <input
+              id="passwordConfirmation"
+              v-model="passwordConfirmation"
+              type="password"
+              required
+              minlength="8"
+              autocomplete="new-password"
+              class="input-field text-base"
+              placeholder="Repite tu contrasena"
             />
           </div>
 
           <!-- Submit button -->
           <button
             type="submit"
-            :disabled="authStore.isLoading"
+            :disabled="authStore.isLoading || !token"
             class="btn-primary w-full mt-6 py-3 text-base active:scale-[0.98] transition-transform"
           >
-            <span v-if="authStore.isLoading">Iniciando sesion...</span>
-            <span v-else>Iniciar sesion</span>
+            <span v-if="authStore.isLoading">Guardando...</span>
+            <span v-else>Guardar nueva contrasena</span>
           </button>
         </form>
 
-        <!-- Help text -->
+        <!-- Back to login -->
         <p class="mt-5 sm:mt-6 text-center text-sm text-gatales-text-secondary">
-          ¿No tienes cuenta?
-          <a
-            href="https://hotmart.com/tu-producto"
-            target="_blank"
+          <router-link
+            to="/login"
             class="text-gatales-accent hover:underline active:opacity-80"
           >
-            Compra tu suscripcion
-          </a>
+            Volver al inicio de sesion
+          </router-link>
         </p>
       </div>
     </div>

@@ -1,27 +1,25 @@
 <script setup>
 import { ref } from 'vue'
-import { useRouter } from 'vue-router'
-import { useAuthStore } from '../../stores/auth'
-
-const router = useRouter()
-const authStore = useAuthStore()
+import { authApi } from '../../services/api'
 
 const email = ref('')
-const password = ref('')
+const isLoading = ref(false)
 const errorMessage = ref('')
+const successMessage = ref('')
 
 async function handleSubmit() {
   errorMessage.value = ''
+  successMessage.value = ''
+  isLoading.value = true
 
   try {
-    await authStore.login(email.value, password.value)
-    router.push('/chat')
+    const response = await authApi.forgotPassword(email.value)
+    successMessage.value = response.data.message
+    email.value = ''
   } catch (e) {
-    if (e.response?.data?.status === 'inactive') {
-      router.push('/account-inactive')
-    } else {
-      errorMessage.value = e.response?.data?.message || 'Error al iniciar sesión'
-    }
+    errorMessage.value = e.response?.data?.message || 'Error al enviar el correo'
+  } finally {
+    isLoading.value = false
   }
 }
 </script>
@@ -42,13 +40,24 @@ async function handleSubmit() {
         <p class="text-sm sm:text-base text-gatales-text-secondary mt-2">Tu asistente de guiones de video</p>
       </div>
 
-      <!-- Login Card -->
+      <!-- Forgot Password Card -->
       <div class="card">
-        <h2 class="text-lg sm:text-xl font-semibold text-gatales-text mb-5 sm:mb-6 text-center">
-          Iniciar sesion
+        <h2 class="text-lg sm:text-xl font-semibold text-gatales-text mb-2 text-center">
+          Restablecer contrasena
         </h2>
+        <p class="text-sm text-gatales-text-secondary text-center mb-5 sm:mb-6">
+          Ingresa tu correo y te enviaremos un enlace para restablecer tu contrasena
+        </p>
 
         <form @submit.prevent="handleSubmit" class="space-y-4">
+          <!-- Success message -->
+          <div
+            v-if="successMessage"
+            class="bg-green-500/10 border border-green-500/50 text-green-400 px-3 sm:px-4 py-3 rounded-lg text-sm"
+          >
+            {{ successMessage }}
+          </div>
+
           <!-- Error message -->
           <div
             v-if="errorMessage"
@@ -74,51 +83,25 @@ async function handleSubmit() {
             />
           </div>
 
-          <!-- Password -->
-          <div>
-            <div class="flex justify-between items-center mb-1">
-              <label for="password" class="block text-sm font-medium text-gatales-text-secondary">
-                Contrasena
-              </label>
-              <router-link
-                to="/forgot-password"
-                class="text-xs text-gatales-accent hover:underline active:opacity-80"
-              >
-                Olvide mi contrasena
-              </router-link>
-            </div>
-            <input
-              id="password"
-              v-model="password"
-              type="password"
-              required
-              autocomplete="current-password"
-              class="input-field text-base"
-              placeholder="••••••••"
-            />
-          </div>
-
           <!-- Submit button -->
           <button
             type="submit"
-            :disabled="authStore.isLoading"
+            :disabled="isLoading"
             class="btn-primary w-full mt-6 py-3 text-base active:scale-[0.98] transition-transform"
           >
-            <span v-if="authStore.isLoading">Iniciando sesion...</span>
-            <span v-else>Iniciar sesion</span>
+            <span v-if="isLoading">Enviando...</span>
+            <span v-else>Enviar enlace</span>
           </button>
         </form>
 
-        <!-- Help text -->
+        <!-- Back to login -->
         <p class="mt-5 sm:mt-6 text-center text-sm text-gatales-text-secondary">
-          ¿No tienes cuenta?
-          <a
-            href="https://hotmart.com/tu-producto"
-            target="_blank"
+          <router-link
+            to="/login"
             class="text-gatales-accent hover:underline active:opacity-80"
           >
-            Compra tu suscripcion
-          </a>
+            Volver al inicio de sesion
+          </router-link>
         </p>
       </div>
     </div>

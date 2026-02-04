@@ -13,9 +13,16 @@ const createForm = ref({
   name: '',
   tokens_monthly: 100000,
   price: 0,
+  duration_months: 1,
   hotmart_product_id: '',
   is_active: true,
 })
+
+const durationOptions = [
+  { value: 1, label: '1 mes' },
+  { value: 3, label: '3 meses' },
+  { value: 12, label: '12 meses (anual)' },
+]
 
 async function fetchPlans() {
   isLoading.value = true
@@ -37,6 +44,7 @@ function startEdit(plan) {
     name: plan.name,
     tokens_monthly: plan.tokens_monthly,
     price: plan.price,
+    duration_months: plan.duration_months || 1,
     hotmart_product_id: plan.hotmart_product_id || '',
     is_active: plan.is_active,
   }
@@ -62,6 +70,7 @@ function openCreateModal() {
     name: '',
     tokens_monthly: 100000,
     price: 0,
+    duration_months: 1,
     hotmart_product_id: '',
     is_active: true,
   }
@@ -173,6 +182,12 @@ function formatPrice(price) {
               <span class="text-gatales-text font-medium">{{ formatPrice(plan.price) }}</span>
             </div>
             <div class="flex justify-between">
+              <span class="text-gatales-text-secondary">Duración</span>
+              <span class="text-gatales-text font-medium">
+                {{ plan.duration_months === 1 ? '1 mes' : plan.duration_months === 3 ? '3 meses' : '12 meses' }}
+              </span>
+            </div>
+            <div class="flex justify-between">
               <span class="text-gatales-text-secondary">Suscriptores activos</span>
               <span class="text-gatales-text font-medium">{{ plan.active_subscriptions }}</span>
             </div>
@@ -225,6 +240,14 @@ function formatPrice(price) {
               <input v-model.number="editForm.price" type="number" step="0.01" class="input-field text-sm" />
             </div>
             <div>
+              <label class="block text-sm text-gatales-text-secondary mb-1">Duración</label>
+              <select v-model.number="editForm.duration_months" class="input-field text-sm">
+                <option v-for="opt in durationOptions" :key="opt.value" :value="opt.value">
+                  {{ opt.label }}
+                </option>
+              </select>
+            </div>
+            <div>
               <label class="block text-sm text-gatales-text-secondary mb-1">Hotmart Product ID</label>
               <input v-model="editForm.hotmart_product_id" type="text" class="input-field text-sm" />
             </div>
@@ -263,6 +286,14 @@ function formatPrice(price) {
           <div>
             <label class="block text-sm text-gatales-text-secondary mb-1">Precio (USD)</label>
             <input v-model.number="createForm.price" type="number" step="0.01" class="input-field text-sm" />
+          </div>
+          <div>
+            <label class="block text-sm text-gatales-text-secondary mb-1">Duración</label>
+            <select v-model.number="createForm.duration_months" class="input-field text-sm">
+              <option v-for="opt in durationOptions" :key="opt.value" :value="opt.value">
+                {{ opt.label }}
+              </option>
+            </select>
           </div>
           <div>
             <label class="block text-sm text-gatales-text-secondary mb-1">Hotmart Product ID</label>

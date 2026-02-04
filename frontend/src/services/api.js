@@ -64,6 +64,8 @@ export const authApi = {
   me: () => api.get('/auth/me'),
   changePassword: (data) => api.post('/auth/change-password', data),
   updateProfile: (data) => api.patch('/auth/profile', data),
+  forgotPassword: (email) => api.post('/auth/forgot-password', { email }),
+  resetPassword: (data) => api.post('/auth/reset-password', data),
   uploadAvatar: (file) => {
     const formData = new FormData()
     formData.append('avatar', file)

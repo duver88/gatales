@@ -5,6 +5,8 @@ import { useAdminStore } from '../stores/admin'
 // User views
 const LoginView = () => import('../views/auth/LoginView.vue')
 const SetPasswordView = () => import('../views/auth/SetPasswordView.vue')
+const ForgotPasswordView = () => import('../views/auth/ForgotPasswordView.vue')
+const ResetPasswordView = () => import('../views/auth/ResetPasswordView.vue')
 const ChatView = () => import('../views/chat/ChatView.vue')
 const TokensExhaustedView = () => import('../views/errors/TokensExhaustedView.vue')
 const AccountInactiveView = () => import('../views/errors/AccountInactiveView.vue')
@@ -34,6 +36,18 @@ const routes = [
     path: '/set-password',
     name: 'set-password',
     component: SetPasswordView,
+    meta: { guest: true },
+  },
+  {
+    path: '/forgot-password',
+    name: 'forgot-password',
+    component: ForgotPasswordView,
+    meta: { guest: true },
+  },
+  {
+    path: '/reset-password',
+    name: 'reset-password',
+    component: ResetPasswordView,
     meta: { guest: true },
   },
 

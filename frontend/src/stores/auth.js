@@ -136,6 +136,31 @@ export const useAuthStore = defineStore('auth', () => {
     }
   }
 
+  async function resetPassword(resetToken, password, passwordConfirmation) {
+    isLoading.value = true
+    error.value = null
+
+    try {
+      const response = await authApi.resetPassword({
+        token: resetToken,
+        password,
+        password_confirmation: passwordConfirmation,
+      })
+
+      token.value = response.data.token
+      user.value = response.data.user
+      localStorage.setItem('auth_token', response.data.token)
+      localStorage.setItem('user', JSON.stringify(response.data.user))
+
+      return response.data
+    } catch (e) {
+      error.value = e.response?.data?.message || 'Error al restablecer la contraseña'
+      throw e
+    } finally {
+      isLoading.value = false
+    }
+  }
+
   return {
     user,
     token,
@@ -152,5 +177,6 @@ export const useAuthStore = defineStore('auth', () => {
     logout,
     fetchUser,
     updateTokensBalance,
+    resetPassword,
   }
 })

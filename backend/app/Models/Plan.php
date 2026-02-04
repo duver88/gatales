@@ -15,6 +15,7 @@ class Plan extends Model
         'slug',
         'tokens_monthly',
         'price',
+        'duration_months',
         'hotmart_product_id',
         'features',
         'is_active',
@@ -25,6 +26,7 @@ class Plan extends Model
         return [
             'tokens_monthly' => 'integer',
             'price' => 'decimal:2',
+            'duration_months' => 'integer',
             'features' => 'array',
             'is_active' => 'boolean',
         ];

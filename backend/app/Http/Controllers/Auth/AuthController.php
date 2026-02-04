@@ -3,12 +3,15 @@
 namespace App\Http\Controllers\Auth;
 
 use App\Http\Controllers\Controller;
+use App\Mail\PasswordResetMail;
 use App\Models\User;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 
 class AuthController extends Controller
@@ -54,6 +57,86 @@ class AuthController extends Controller
         return response()->json([
             'success' => true,
             'message' => 'Contraseña establecida correctamente',
+            'token' => $token,
+            'user' => $this->formatUserResponse($user),
+        ]);
+    }
+
+    /**
+     * Request password reset - sends email with reset link
+     */
+    public function forgotPassword(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'email' => 'required|email',
+        ]);
+
+        $user = User::where('email', $validated['email'])->first();
+
+        // Always return success to prevent email enumeration attacks
+        if (!$user) {
+            return response()->json([
+                'success' => true,
+                'message' => 'Si el correo existe en nuestro sistema, recibirás un enlace para restablecer tu contraseña.',
+            ]);
+        }
+
+        // Generate password reset token
+        $token = Str::random(64);
+
+        $user->update([
+            'password_token' => $token,
+            'password_token_expires_at' => Carbon::now()->addHour(), // 1 hour expiry for security
+        ]);
+
+        // Send password reset email
+        Mail::to($user->email)->queue(new PasswordResetMail($user, $token));
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Si el correo existe en nuestro sistema, recibirás un enlace para restablecer tu contraseña.',
+        ]);
+    }
+
+    /**
+     * Reset password using token from email
+     */
+    public function resetPassword(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'token' => 'required|string',
+            'password' => 'required|string|min:8|confirmed',
+        ]);
+
+        $user = User::where('password_token', $validated['token'])->first();
+
+        if (!$user) {
+            return response()->json([
+                'success' => false,
+                'message' => 'El enlace no es válido o ha expirado.',
+            ], 400);
+        }
+
+        if ($user->password_token_expires_at && Carbon::parse($user->password_token_expires_at)->isPast()) {
+            return response()->json([
+                'success' => false,
+                'message' => 'El enlace ha expirado. Por favor solicita uno nuevo.',
+            ], 400);
+        }
+
+        // Update user password
+        $user->update([
+            'password' => Hash::make($validated['password']),
+            'password_token' => null,
+            'password_token_expires_at' => null,
+        ]);
+
+        // Create token for immediate login
+        $token = $user->createToken('auth-token')->plainTextToken;
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Contraseña restablecida correctamente',
             'token' => $token,
             'user' => $this->formatUserResponse($user),
         ]);
