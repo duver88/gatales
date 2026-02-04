@@ -65,6 +65,119 @@ const formData = ref({ ...defaultFormData })
 
 // Track which advanced section is expanded
 const showAdvanced = ref(false)
+const showPromptTips = ref(false)
+
+// Prompt templates
+const promptTemplates = {
+  guiones: `## ROL
+Eres un experto guionista especializado en crear guiones de video para redes sociales y YouTube. Tienes años de experiencia creando contenido viral que conecta emocionalmente con la audiencia.
+
+## PERSONALIDAD
+- Tono: Amigable y profesional
+- Estilo: Creativo pero estructurado
+- Actitud: Entusiasta y motivador
+
+## INSTRUCCIONES PRINCIPALES
+1. Siempre pregunta primero sobre el negocio/producto del usuario si no lo conoces
+2. Crea guiones con estructura clara: gancho, desarrollo, llamada a accion
+3. Adapta el lenguaje al publico objetivo del usuario
+4. Incluye indicaciones de tono y emocion en el guion
+5. Ofrece variantes cuando sea apropiado
+
+## FORMATO DE RESPUESTA
+- Usa formato de guion con indicaciones claras
+- Incluye tiempos aproximados
+- Marca las secciones (GANCHO, DESARROLLO, CTA)
+- Agrega notas de produccion cuando sea util
+
+## RESTRICCIONES
+- No uses lenguaje ofensivo
+- Evita promesas exageradas o falsas
+- No copies contenido de otros creadores`,
+
+  asistente: `## ROL
+Eres un asistente virtual inteligente y servicial. Tu objetivo es ayudar a los usuarios de manera eficiente y clara.
+
+## PERSONALIDAD
+- Tono: Amigable y profesional
+- Estilo: Claro y conciso
+- Actitud: Paciente y comprensivo
+
+## INSTRUCCIONES
+1. Responde de manera clara y directa
+2. Si no entiendes algo, pide clarificacion
+3. Ofrece ayuda adicional cuando sea relevante
+4. Mantiene un tono positivo y constructivo
+
+## FORMATO
+- Usa listas para instrucciones paso a paso
+- Resalta informacion importante
+- Manten respuestas concisas pero completas
+
+## RESTRICCIONES
+- No inventes informacion
+- Si no sabes algo, admitelo honestamente
+- Evita respuestas demasiado largas`,
+
+  experto: `## ROL
+Eres un experto tecnico con amplio conocimiento en tu area. Proporcionas informacion precisa y detallada.
+
+## PERSONALIDAD
+- Tono: Profesional y tecnico
+- Estilo: Detallado y preciso
+- Actitud: Educativo y paciente
+
+## INSTRUCCIONES
+1. Explica conceptos tecnicos de manera accesible
+2. Proporciona ejemplos practicos
+3. Ofrece alternativas cuando sea posible
+4. Incluye advertencias sobre posibles problemas
+
+## FORMATO
+- Usa codigo formateado cuando sea relevante
+- Incluye explicaciones paso a paso
+- Organiza la informacion con encabezados claros
+
+## RESTRICCIONES
+- No des consejos sin advertir sobre riesgos
+- Verifica la precision de la informacion tecnica
+- Admite cuando algo esta fuera de tu expertise`,
+
+  creativo: `## ROL
+Eres un escritor creativo con talento para crear contenido original, atractivo y memorable.
+
+## PERSONALIDAD
+- Tono: Creativo e inspirador
+- Estilo: Expresivo y unico
+- Actitud: Imaginativo y entusiasta
+
+## INSTRUCCIONES
+1. Crea contenido original y atractivo
+2. Adapta el estilo al proposito del contenido
+3. Usa tecnicas narrativas efectivas
+4. Incorpora elementos que generen engagement
+
+## FORMATO
+- Varia la estructura segun el tipo de contenido
+- Usa metaforas y lenguaje visual
+- Crea ritmo y fluidez en el texto
+
+## RESTRICCIONES
+- Manten originalidad, no copies
+- Respeta el tono de marca del usuario
+- Evita cliches cuando sea posible`
+}
+
+function applyPromptTemplate(templateName) {
+  if (promptTemplates[templateName]) {
+    if (formData.value.system_prompt && formData.value.system_prompt.trim() !== '' && formData.value.system_prompt !== defaultFormData.system_prompt) {
+      if (!confirm('¿Reemplazar las instrucciones actuales con esta plantilla?')) {
+        return
+      }
+    }
+    formData.value.system_prompt = promptTemplates[templateName]
+  }
+}
 
 // Computed: current provider's models
 const currentProviderModels = computed(() => {
@@ -625,11 +738,140 @@ function getStatusText(status) {
             </div>
           </div>
 
-          <!-- System Prompt -->
+          <!-- System Prompt - Improved -->
           <div class="border-t border-gatales-border pt-4">
-            <h3 class="text-sm font-semibold text-gatales-text mb-3">Instrucciones del Sistema</h3>
-            <textarea v-model="formData.system_prompt" rows="8" class="input-field font-mono text-sm" required placeholder="Instrucciones que definen el comportamiento del asistente..."></textarea>
-            <p class="text-xs text-gatales-text-secondary mt-1">Define la personalidad y comportamiento del asistente</p>
+            <div class="flex justify-between items-start mb-3">
+              <div>
+                <h3 class="text-sm font-semibold text-gatales-text">Instrucciones del Sistema (System Prompt)</h3>
+                <p class="text-xs text-gatales-text-secondary mt-1">Define como debe comportarse y responder el asistente</p>
+              </div>
+              <span :class="['text-xs px-2 py-1 rounded', formData.system_prompt.length > 4000 ? 'bg-red-500/20 text-red-400' : 'bg-gatales-input text-gatales-text-secondary']">
+                {{ formData.system_prompt.length }} caracteres
+              </span>
+            </div>
+
+            <!-- Tips Panel -->
+            <div class="mb-4 p-3 bg-blue-500/10 border border-blue-500/20 rounded-lg">
+              <button
+                type="button"
+                @click="showPromptTips = !showPromptTips"
+                class="flex items-center gap-2 text-sm font-medium text-blue-400 w-full"
+              >
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                Tips para escribir buenas instrucciones
+                <svg :class="['w-4 h-4 ml-auto transition-transform', showPromptTips ? 'rotate-180' : '']" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+                </svg>
+              </button>
+              <div v-if="showPromptTips" class="mt-3 text-xs text-blue-300/80 space-y-2">
+                <p><strong>1. Define el ROL claramente:</strong> "Eres un experto en X que ayuda a Y"</p>
+                <p><strong>2. Especifica el TONO:</strong> Profesional, amigable, formal, casual</p>
+                <p><strong>3. Da CONTEXTO:</strong> Que sabe el asistente, que no debe hacer</p>
+                <p><strong>4. Define el FORMATO:</strong> Como debe estructurar las respuestas</p>
+                <p><strong>5. Incluye EJEMPLOS:</strong> Muestra como deberia responder</p>
+                <p><strong>6. Establece LIMITES:</strong> Que temas evitar, que no responder</p>
+              </div>
+            </div>
+
+            <!-- Quick Templates -->
+            <div class="mb-4">
+              <label class="block text-xs font-medium text-gatales-text-secondary mb-2">Plantillas rapidas:</label>
+              <div class="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  @click="applyPromptTemplate('guiones')"
+                  class="text-xs px-3 py-1.5 bg-gatales-input hover:bg-gatales-border rounded transition-colors text-gatales-text"
+                >
+                  Guionista
+                </button>
+                <button
+                  type="button"
+                  @click="applyPromptTemplate('asistente')"
+                  class="text-xs px-3 py-1.5 bg-gatales-input hover:bg-gatales-border rounded transition-colors text-gatales-text"
+                >
+                  Asistente General
+                </button>
+                <button
+                  type="button"
+                  @click="applyPromptTemplate('experto')"
+                  class="text-xs px-3 py-1.5 bg-gatales-input hover:bg-gatales-border rounded transition-colors text-gatales-text"
+                >
+                  Experto Tecnico
+                </button>
+                <button
+                  type="button"
+                  @click="applyPromptTemplate('creativo')"
+                  class="text-xs px-3 py-1.5 bg-gatales-input hover:bg-gatales-border rounded transition-colors text-gatales-text"
+                >
+                  Escritor Creativo
+                </button>
+              </div>
+            </div>
+
+            <!-- Main Textarea -->
+            <textarea
+              v-model="formData.system_prompt"
+              rows="15"
+              class="input-field font-mono text-sm leading-relaxed"
+              required
+              placeholder="Escribe aqui las instrucciones para el asistente...
+
+EJEMPLO DE ESTRUCTURA:
+
+## ROL
+Eres un [tipo de experto] especializado en [area].
+
+## PERSONALIDAD
+- Tono: [amigable/profesional/casual]
+- Estilo: [directo/detallado/conciso]
+
+## INSTRUCCIONES
+1. Siempre [hacer algo]
+2. Nunca [evitar algo]
+3. Cuando el usuario pregunte X, responde Y
+
+## FORMATO DE RESPUESTA
+- Usa listas cuando sea apropiado
+- Incluye ejemplos practicos
+- Manten las respuestas [cortas/detalladas]
+
+## RESTRICCIONES
+- No hables de [temas prohibidos]
+- Si no sabes algo, admitelo"
+            ></textarea>
+
+            <!-- Structure suggestions -->
+            <div class="mt-3 p-3 bg-gatales-input rounded-lg">
+              <p class="text-xs font-medium text-gatales-text mb-2">Estructura sugerida para tus instrucciones:</p>
+              <div class="grid grid-cols-2 sm:grid-cols-3 gap-2 text-xs text-gatales-text-secondary">
+                <span class="flex items-center gap-1">
+                  <span class="w-2 h-2 rounded-full bg-green-500"></span>
+                  Rol/Identidad
+                </span>
+                <span class="flex items-center gap-1">
+                  <span class="w-2 h-2 rounded-full bg-blue-500"></span>
+                  Tono/Personalidad
+                </span>
+                <span class="flex items-center gap-1">
+                  <span class="w-2 h-2 rounded-full bg-yellow-500"></span>
+                  Instrucciones
+                </span>
+                <span class="flex items-center gap-1">
+                  <span class="w-2 h-2 rounded-full bg-purple-500"></span>
+                  Formato
+                </span>
+                <span class="flex items-center gap-1">
+                  <span class="w-2 h-2 rounded-full bg-orange-500"></span>
+                  Ejemplos
+                </span>
+                <span class="flex items-center gap-1">
+                  <span class="w-2 h-2 rounded-full bg-red-500"></span>
+                  Restricciones
+                </span>
+              </div>
+            </div>
           </div>
 
           <!-- Welcome Message -->
