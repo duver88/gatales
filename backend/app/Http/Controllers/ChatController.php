@@ -131,19 +131,21 @@ class ChatController extends Controller
             // Check if this is the first message - generate title if so
             $isFirstMessage = $conversation->messages()->count() === 0;
 
+            // Get the appropriate service based on assistant's provider
+            $assistant = $conversation->assistant ?? $user->getAssistant();
+            $provider = $assistant && $assistant->isDeepSeek() ? 'deepseek' : 'openai';
+            $aiService = $this->getServiceForAssistant($assistant);
+
             // Save user message first
             $userMessage = Message::create([
                 'user_id' => $user->id,
                 'conversation_id' => $conversation->id,
+                'provider' => $provider,
                 'role' => 'user',
                 'content' => $validated['message'],
                 'tokens_input' => 0,
                 'tokens_output' => 0,
             ]);
-
-            // Get the appropriate service based on assistant's provider
-            $assistant = $conversation->assistant ?? $user->getAssistant();
-            $aiService = $this->getServiceForAssistant($assistant);
 
             // Send to AI and get response
             $response = $aiService->sendMessage($user, $validated['message'], $conversation);
@@ -152,6 +154,7 @@ class ChatController extends Controller
             $assistantMessage = Message::create([
                 'user_id' => $user->id,
                 'conversation_id' => $conversation->id,
+                'provider' => $provider,
                 'role' => 'assistant',
                 'content' => $response['content'],
                 'tokens_input' => $response['tokens_input'],
@@ -167,11 +170,12 @@ class ChatController extends Controller
                 $conversation->generateTitle();
             }
 
-            // Deduct tokens
+            // Deduct tokens with provider
             $this->tokenService->deductTokens(
                 $user,
                 $response['tokens_input'],
-                $response['tokens_output']
+                $response['tokens_output'],
+                $provider
             );
 
             // Refresh user and conversation
@@ -254,9 +258,10 @@ class ChatController extends Controller
         $message = $validated['message'];
         $assistant = $conversation->assistant ?? $user->getAssistant();
         $isDeepSeek = $assistant && $assistant->isDeepSeek();
+        $provider = $isDeepSeek ? 'deepseek' : 'openai';
         $usesResponsesApi = !$isDeepSeek && $assistant && $assistant->usesResponsesApi();
 
-        return new StreamedResponse(function () use ($user, $userId, $message, $conversation, $assistant, $usesResponsesApi, $isDeepSeek) {
+        return new StreamedResponse(function () use ($user, $userId, $message, $conversation, $assistant, $usesResponsesApi, $isDeepSeek, $provider) {
             // Deshabilitar timeout de PHP para streaming largo (GPT-5 + Knowledge Base puede tardar varios minutos)
             set_time_limit(0);
 
@@ -291,6 +296,7 @@ class ChatController extends Controller
                 $userMessage = Message::create([
                     'user_id' => $userId,
                     'conversation_id' => $conversation->id,
+                    'provider' => $provider,
                     'role' => 'user',
                     'content' => $message,
                     'tokens_input' => 0,
@@ -346,6 +352,7 @@ class ChatController extends Controller
                 $assistantMessage = Message::create([
                     'user_id' => $userId,
                     'conversation_id' => $conversation->id,
+                    'provider' => $provider,
                     'role' => 'assistant',
                     'content' => $fullContent,
                     'tokens_input' => $tokensInput,
@@ -369,8 +376,9 @@ class ChatController extends Controller
                     'tokens_output' => $tokensOutput,
                     'total' => $totalTokensToDeduct,
                     'balance_before' => $user->tokens_balance,
+                    'provider' => $provider,
                 ]);
-                $this->tokenService->deductTokens($user, $tokensInput, $tokensOutput);
+                $this->tokenService->deductTokens($user, $tokensInput, $tokensOutput, $provider);
 
                 // Calculate new balance locally (avoid unnecessary refresh query)
                 $newBalance = $user->tokens_balance - $totalTokensToDeduct;

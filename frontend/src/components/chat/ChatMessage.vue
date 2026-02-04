@@ -32,11 +32,15 @@ function formatMarkdown(content) {
     return formatCache.get(content)
   }
 
-  // Format content
+  // Format content - use [\s\S] instead of . to match newlines
   let result = content
-    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
-    .replace(/\*(.+?)\*/g, '<em>$1</em>')
-    .replace(/`(.+?)`/g, '<code>$1</code>')
+    // Bold: **text** - handle multiline with [\s\S]
+    .replace(/\*\*([\s\S]+?)\*\*/g, '<strong>$1</strong>')
+    // Italic: *text* - handle multiline with [\s\S]
+    .replace(/\*(?!\*)([\s\S]+?)\*(?!\*)/g, '<em>$1</em>')
+    // Inline code: `code`
+    .replace(/`([^`]+)`/g, '<code>$1</code>')
+    // Newlines to breaks
     .replace(/\n/g, '<br>')
 
   // Only cache non-streaming content (streaming content changes frequently)

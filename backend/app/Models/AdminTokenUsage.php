@@ -2,27 +2,18 @@
 
 namespace App\Models;
 
-use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
-class TokenUsage extends Model
+class AdminTokenUsage extends Model
 {
-    use HasFactory;
+    protected $table = 'admin_token_usage';
 
-    /**
-     * The table associated with the model.
-     */
-    protected $table = 'token_usage';
-
-    /**
-     * Indicates if the model should be timestamped.
-     * We only use created_at
-     */
     public $timestamps = false;
 
     protected $fillable = [
-        'user_id',
+        'admin_id',
+        'assistant_id',
         'provider',
         'tokens_input',
         'tokens_output',
@@ -40,29 +31,29 @@ class TokenUsage extends Model
         ];
     }
 
-    /**
-     * Get the user that owns the token usage record
-     */
-    public function user(): BelongsTo
+    public function admin(): BelongsTo
     {
-        return $this->belongsTo(User::class);
+        return $this->belongsTo(Admin::class);
     }
 
-    /**
-     * Get total tokens
-     */
+    public function assistant(): BelongsTo
+    {
+        return $this->belongsTo(Assistant::class);
+    }
+
     public function getTotalTokensAttribute(): int
     {
         return $this->tokens_input + $this->tokens_output;
     }
 
     /**
-     * Record token usage for a user
+     * Record admin token usage
      */
-    public static function record(int $userId, int $tokensInput, int $tokensOutput, string $provider = 'openai'): self
+    public static function record(int $adminId, int $tokensInput, int $tokensOutput, string $provider = 'openai', ?int $assistantId = null): self
     {
         return static::create([
-            'user_id' => $userId,
+            'admin_id' => $adminId,
+            'assistant_id' => $assistantId,
             'provider' => $provider,
             'tokens_input' => $tokensInput,
             'tokens_output' => $tokensOutput,
@@ -71,9 +62,6 @@ class TokenUsage extends Model
         ]);
     }
 
-    /**
-     * Boot method to set created_at automatically
-     */
     protected static function boot()
     {
         parent::boot();

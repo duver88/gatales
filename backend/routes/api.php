@@ -118,6 +118,7 @@ Route::prefix('admin')->group(function () {
         // Token Statistics
         Route::get('/stats/tokens', [DashboardController::class, 'tokenStats']);
         Route::get('/stats/openai', [DashboardController::class, 'openaiStats']);
+        Route::get('/stats/providers', [DashboardController::class, 'providerStats']);
 
         // Webhook Logs
         Route::get('/webhook-logs', [WebhookLogController::class, 'index']);

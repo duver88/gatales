@@ -112,7 +112,7 @@ class DashboardController extends Controller
     }
 
     /**
-     * Get OpenAI usage statistics with cost estimation
+     * Get OpenAI usage statistics with cost estimation (legacy - all providers combined)
      */
     public function openaiStats(): JsonResponse
     {
@@ -121,6 +121,110 @@ class DashboardController extends Controller
         return response()->json([
             'success' => true,
             'openai_usage' => $stats,
+        ]);
+    }
+
+    /**
+     * Get usage statistics by provider (OpenAI vs DeepSeek)
+     */
+    public function providerStats(): JsonResponse
+    {
+        // Usage by provider (users)
+        $userUsage = $this->tokenService->getUsageByProvider();
+
+        // Admin usage (testing)
+        $adminUsage = $this->tokenService->getAdminUsageStats();
+
+        // Users breakdown with provider usage
+        $usersBreakdown = $this->tokenService->getUsersUsageBreakdown();
+
+        // Calculate combined totals
+        $combinedToday = [
+            'openai' => ($userUsage['openai']['today']['total'] ?? 0) + ($adminUsage['openai']['today']['total'] ?? 0),
+            'deepseek' => ($userUsage['deepseek']['today']['total'] ?? 0) + ($adminUsage['deepseek']['today']['total'] ?? 0),
+        ];
+
+        $combinedMonth = [
+            'openai' => ($userUsage['openai']['month']['total'] ?? 0) + ($adminUsage['openai']['month']['total'] ?? 0),
+            'deepseek' => ($userUsage['deepseek']['month']['total'] ?? 0) + ($adminUsage['deepseek']['month']['total'] ?? 0),
+        ];
+
+        $combinedAllTime = [
+            'openai' => ($userUsage['openai']['all_time']['total'] ?? 0) + ($adminUsage['openai']['all_time']['total'] ?? 0),
+            'deepseek' => ($userUsage['deepseek']['all_time']['total'] ?? 0) + ($adminUsage['deepseek']['all_time']['total'] ?? 0),
+        ];
+
+        // Calculate costs
+        $combinedCostToday = [
+            'openai' => ($userUsage['openai']['today']['estimated_cost'] ?? 0) + ($adminUsage['openai']['today']['estimated_cost'] ?? 0),
+            'deepseek' => ($userUsage['deepseek']['today']['estimated_cost'] ?? 0) + ($adminUsage['deepseek']['today']['estimated_cost'] ?? 0),
+        ];
+
+        $combinedCostMonth = [
+            'openai' => ($userUsage['openai']['month']['estimated_cost'] ?? 0) + ($adminUsage['openai']['month']['estimated_cost'] ?? 0),
+            'deepseek' => ($userUsage['deepseek']['month']['estimated_cost'] ?? 0) + ($adminUsage['deepseek']['month']['estimated_cost'] ?? 0),
+        ];
+
+        $combinedCostAllTime = [
+            'openai' => ($userUsage['openai']['all_time']['estimated_cost'] ?? 0) + ($adminUsage['openai']['all_time']['estimated_cost'] ?? 0),
+            'deepseek' => ($userUsage['deepseek']['all_time']['estimated_cost'] ?? 0) + ($adminUsage['deepseek']['all_time']['estimated_cost'] ?? 0),
+        ];
+
+        return response()->json([
+            'success' => true,
+            'user_usage' => $userUsage,
+            'admin_usage' => $adminUsage,
+            'users_breakdown' => $usersBreakdown,
+            'combined' => [
+                'today' => [
+                    'openai' => [
+                        'tokens' => $combinedToday['openai'],
+                        'cost' => round($combinedCostToday['openai'], 4),
+                    ],
+                    'deepseek' => [
+                        'tokens' => $combinedToday['deepseek'],
+                        'cost' => round($combinedCostToday['deepseek'], 4),
+                    ],
+                    'total_tokens' => $combinedToday['openai'] + $combinedToday['deepseek'],
+                    'total_cost' => round($combinedCostToday['openai'] + $combinedCostToday['deepseek'], 4),
+                ],
+                'month' => [
+                    'openai' => [
+                        'tokens' => $combinedMonth['openai'],
+                        'cost' => round($combinedCostMonth['openai'], 4),
+                    ],
+                    'deepseek' => [
+                        'tokens' => $combinedMonth['deepseek'],
+                        'cost' => round($combinedCostMonth['deepseek'], 4),
+                    ],
+                    'total_tokens' => $combinedMonth['openai'] + $combinedMonth['deepseek'],
+                    'total_cost' => round($combinedCostMonth['openai'] + $combinedCostMonth['deepseek'], 4),
+                ],
+                'all_time' => [
+                    'openai' => [
+                        'tokens' => $combinedAllTime['openai'],
+                        'cost' => round($combinedCostAllTime['openai'], 4),
+                    ],
+                    'deepseek' => [
+                        'tokens' => $combinedAllTime['deepseek'],
+                        'cost' => round($combinedCostAllTime['deepseek'], 4),
+                    ],
+                    'total_tokens' => $combinedAllTime['openai'] + $combinedAllTime['deepseek'],
+                    'total_cost' => round($combinedCostAllTime['openai'] + $combinedCostAllTime['deepseek'], 4),
+                ],
+            ],
+            'pricing_info' => [
+                'openai' => [
+                    'model' => 'gpt-4o-mini (base)',
+                    'input_per_1m' => 0.15,
+                    'output_per_1m' => 0.60,
+                ],
+                'deepseek' => [
+                    'model' => 'deepseek-chat',
+                    'input_per_1m' => 0.14,
+                    'output_per_1m' => 0.28,
+                ],
+            ],
         ]);
     }
 }

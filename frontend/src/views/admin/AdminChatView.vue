@@ -376,6 +376,20 @@ function truncateTitle(title, maxLength = 30) {
   if (!title) return 'Nueva prueba'
   return title.length > maxLength ? title.substring(0, maxLength) + '...' : title
 }
+
+// Markdown formatting for message content
+function formatMarkdown(content) {
+  if (!content) return ''
+  return content
+    // Bold: **text** - handle multiline with [\s\S]
+    .replace(/\*\*([\s\S]+?)\*\*/g, '<strong>$1</strong>')
+    // Italic: *text* - handle multiline with [\s\S]
+    .replace(/\*(?!\*)([\s\S]+?)\*(?!\*)/g, '<em>$1</em>')
+    // Inline code: `code`
+    .replace(/`([^`]+)`/g, '<code class="bg-gatales-bg px-1 py-0.5 rounded text-sm">$1</code>')
+    // Newlines to breaks
+    .replace(/\n/g, '<br>')
+}
 </script>
 
 <template>
@@ -621,7 +635,10 @@ function truncateTitle(title, maxLength = 30) {
                 </span>
               </div>
               <!-- Message content -->
-              <p v-else class="whitespace-pre-wrap">{{ message.content }}<span v-if="message.isStreaming" class="streaming-cursor">|</span></p>
+              <div v-else class="message-content">
+                <span v-html="formatMarkdown(message.content)"></span>
+                <span v-if="message.isStreaming" class="streaming-cursor">|</span>
+              </div>
               <div :class="[
                 'flex items-center gap-2 text-xs mt-1',
                 message.role === 'user' ? 'text-white/60' : 'text-gatales-text-secondary'
@@ -742,5 +759,22 @@ function truncateTitle(title, maxLength = 30) {
     opacity: 1;
     transform: translateY(-3px);
   }
+}
+
+/* Message content markdown styling */
+.message-content {
+  word-wrap: break-word;
+}
+
+.message-content :deep(strong) {
+  font-weight: 600;
+}
+
+.message-content :deep(em) {
+  font-style: italic;
+}
+
+.message-content :deep(code) {
+  font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
 }
 </style>

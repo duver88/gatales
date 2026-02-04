@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Models\AdminTokenUsage;
 use App\Models\TokenUsage;
 use App\Models\User;
 
@@ -18,15 +19,23 @@ class TokenService
     /**
      * Deduct tokens from user and record usage
      */
-    public function deductTokens(User $user, int $tokensInput, int $tokensOutput): void
+    public function deductTokens(User $user, int $tokensInput, int $tokensOutput, string $provider = 'openai'): void
     {
         $totalTokens = $tokensInput + $tokensOutput;
 
         // Deduct from user balance
         $user->deductTokens($totalTokens);
 
-        // Record usage for statistics
-        TokenUsage::record($user->id, $tokensInput, $tokensOutput);
+        // Record usage for statistics with provider
+        TokenUsage::record($user->id, $tokensInput, $tokensOutput, $provider);
+    }
+
+    /**
+     * Record admin token usage (for testing)
+     */
+    public function recordAdminUsage(int $adminId, int $tokensInput, int $tokensOutput, string $provider = 'openai', ?int $assistantId = null): void
+    {
+        AdminTokenUsage::record($adminId, $tokensInput, $tokensOutput, $provider, $assistantId);
     }
 
     /**
@@ -61,8 +70,8 @@ class TokenService
     {
         $usage = TokenUsage::where('user_id', $user->id)
             ->where('date', '>=', now()->subDays($days))
-            ->selectRaw('date, SUM(tokens_input) as input, SUM(tokens_output) as output')
-            ->groupBy('date')
+            ->selectRaw('date, provider, SUM(tokens_input) as input, SUM(tokens_output) as output')
+            ->groupBy('date', 'provider')
             ->orderBy('date')
             ->get();
 
@@ -77,10 +86,11 @@ class TokenService
 
             return [
                 'date' => $item->date->format('Y-m-d'),
+                'provider' => $item->provider,
                 'tokens_input' => $input,
                 'tokens_output' => $output,
                 'total' => $input + $output,
-                'estimated_cost' => $this->calculateCost($input, $output),
+                'estimated_cost' => $this->calculateCost($input, $output, null, $item->provider),
             ];
         })->toArray();
 
@@ -153,26 +163,63 @@ class TokenService
     }
 
     /**
-     * OpenAI model pricing per 1M tokens (as of 2024)
+     * OpenAI model pricing per 1M tokens
      */
-    private function getModelPricing(): array
+    private function getOpenAIPricing(): array
     {
         return [
+            'gpt-5.2' => ['input' => 5.00, 'output' => 15.00],
+            'gpt-5.2-mini' => ['input' => 0.30, 'output' => 1.20],
+            'gpt-5.2-codex' => ['input' => 3.00, 'output' => 12.00],
+            'gpt-5.1' => ['input' => 4.00, 'output' => 12.00],
+            'gpt-5.1-mini' => ['input' => 0.25, 'output' => 1.00],
+            'gpt-5.1-codex' => ['input' => 2.50, 'output' => 10.00],
+            'gpt-5' => ['input' => 3.00, 'output' => 10.00],
+            'gpt-5-mini' => ['input' => 0.20, 'output' => 0.80],
             'gpt-4o-mini' => ['input' => 0.15, 'output' => 0.60],
             'gpt-4o' => ['input' => 2.50, 'output' => 10.00],
             'gpt-4-turbo' => ['input' => 10.00, 'output' => 30.00],
             'gpt-4' => ['input' => 30.00, 'output' => 60.00],
             'gpt-3.5-turbo' => ['input' => 0.50, 'output' => 1.50],
+            'o1' => ['input' => 15.00, 'output' => 60.00],
+            'o1-mini' => ['input' => 3.00, 'output' => 12.00],
         ];
+    }
+
+    /**
+     * DeepSeek model pricing per 1M tokens
+     */
+    private function getDeepSeekPricing(): array
+    {
+        return [
+            'deepseek-chat' => ['input' => 0.14, 'output' => 0.28],
+            'deepseek-reasoner' => ['input' => 0.55, 'output' => 2.19],
+        ];
+    }
+
+    /**
+     * Get default pricing for a provider
+     */
+    private function getDefaultPricing(string $provider): array
+    {
+        if ($provider === 'deepseek') {
+            return ['input' => 0.14, 'output' => 0.28]; // deepseek-chat default
+        }
+        return ['input' => 0.15, 'output' => 0.60]; // gpt-4o-mini default
     }
 
     /**
      * Calculate estimated cost for tokens
      */
-    public function calculateCost(int $tokensInput, int $tokensOutput, string $model = 'gpt-4o-mini'): float
+    public function calculateCost(int $tokensInput, int $tokensOutput, ?string $model = null, string $provider = 'openai'): float
     {
-        $pricing = $this->getModelPricing();
-        $modelPricing = $pricing[$model] ?? $pricing['gpt-4o-mini'];
+        if ($provider === 'deepseek') {
+            $pricing = $this->getDeepSeekPricing();
+            $modelPricing = $pricing[$model ?? 'deepseek-chat'] ?? $this->getDefaultPricing('deepseek');
+        } else {
+            $pricing = $this->getOpenAIPricing();
+            $modelPricing = $pricing[$model ?? 'gpt-4o-mini'] ?? $this->getDefaultPricing('openai');
+        }
 
         $inputCost = ($tokensInput / 1000000) * $modelPricing['input'];
         $outputCost = ($tokensOutput / 1000000) * $modelPricing['output'];
@@ -181,7 +228,257 @@ class TokenService
     }
 
     /**
-     * Get OpenAI usage statistics with cost estimation (for admin)
+     * Get usage statistics by provider (for admin dashboard)
+     */
+    public function getUsageByProvider(): array
+    {
+        // Today's usage by provider
+        $todayByProvider = TokenUsage::where('date', now()->toDateString())
+            ->selectRaw('provider, SUM(tokens_input) as input, SUM(tokens_output) as output')
+            ->groupBy('provider')
+            ->get()
+            ->keyBy('provider');
+
+        // This month's usage by provider
+        $monthByProvider = TokenUsage::whereMonth('date', now()->month)
+            ->whereYear('date', now()->year)
+            ->selectRaw('provider, SUM(tokens_input) as input, SUM(tokens_output) as output')
+            ->groupBy('provider')
+            ->get()
+            ->keyBy('provider');
+
+        // All time by provider
+        $allTimeByProvider = TokenUsage::selectRaw('provider, SUM(tokens_input) as input, SUM(tokens_output) as output')
+            ->groupBy('provider')
+            ->get()
+            ->keyBy('provider');
+
+        $providers = ['openai', 'deepseek'];
+        $result = [];
+
+        foreach ($providers as $provider) {
+            $todayData = $todayByProvider->get($provider);
+            $monthData = $monthByProvider->get($provider);
+            $allTimeData = $allTimeByProvider->get($provider);
+
+            $todayInput = (int) ($todayData->input ?? 0);
+            $todayOutput = (int) ($todayData->output ?? 0);
+            $monthInput = (int) ($monthData->input ?? 0);
+            $monthOutput = (int) ($monthData->output ?? 0);
+            $allTimeInput = (int) ($allTimeData->input ?? 0);
+            $allTimeOutput = (int) ($allTimeData->output ?? 0);
+
+            $result[$provider] = [
+                'today' => [
+                    'tokens_input' => $todayInput,
+                    'tokens_output' => $todayOutput,
+                    'total' => $todayInput + $todayOutput,
+                    'estimated_cost' => $this->calculateCost($todayInput, $todayOutput, null, $provider),
+                ],
+                'month' => [
+                    'tokens_input' => $monthInput,
+                    'tokens_output' => $monthOutput,
+                    'total' => $monthInput + $monthOutput,
+                    'estimated_cost' => $this->calculateCost($monthInput, $monthOutput, null, $provider),
+                ],
+                'all_time' => [
+                    'tokens_input' => $allTimeInput,
+                    'tokens_output' => $allTimeOutput,
+                    'total' => $allTimeInput + $allTimeOutput,
+                    'estimated_cost' => $this->calculateCost($allTimeInput, $allTimeOutput, null, $provider),
+                ],
+            ];
+        }
+
+        return $result;
+    }
+
+    /**
+     * Get admin usage statistics (for admin dashboard)
+     */
+    public function getAdminUsageStats(): array
+    {
+        // Today's admin usage
+        $todayUsage = AdminTokenUsage::where('date', now()->toDateString())
+            ->selectRaw('provider, SUM(tokens_input) as input, SUM(tokens_output) as output')
+            ->groupBy('provider')
+            ->get()
+            ->keyBy('provider');
+
+        // This month's admin usage
+        $monthUsage = AdminTokenUsage::whereMonth('date', now()->month)
+            ->whereYear('date', now()->year)
+            ->selectRaw('provider, SUM(tokens_input) as input, SUM(tokens_output) as output')
+            ->groupBy('provider')
+            ->get()
+            ->keyBy('provider');
+
+        // All time admin usage
+        $allTimeUsage = AdminTokenUsage::selectRaw('provider, SUM(tokens_input) as input, SUM(tokens_output) as output')
+            ->groupBy('provider')
+            ->get()
+            ->keyBy('provider');
+
+        $providers = ['openai', 'deepseek'];
+        $result = [];
+
+        foreach ($providers as $provider) {
+            $todayData = $todayUsage->get($provider);
+            $monthData = $monthUsage->get($provider);
+            $allTimeData = $allTimeUsage->get($provider);
+
+            $todayInput = (int) ($todayData->input ?? 0);
+            $todayOutput = (int) ($todayData->output ?? 0);
+            $monthInput = (int) ($monthData->input ?? 0);
+            $monthOutput = (int) ($monthData->output ?? 0);
+            $allTimeInput = (int) ($allTimeData->input ?? 0);
+            $allTimeOutput = (int) ($allTimeData->output ?? 0);
+
+            $result[$provider] = [
+                'today' => [
+                    'tokens_input' => $todayInput,
+                    'tokens_output' => $todayOutput,
+                    'total' => $todayInput + $todayOutput,
+                    'estimated_cost' => $this->calculateCost($todayInput, $todayOutput, null, $provider),
+                ],
+                'month' => [
+                    'tokens_input' => $monthInput,
+                    'tokens_output' => $monthOutput,
+                    'total' => $monthInput + $monthOutput,
+                    'estimated_cost' => $this->calculateCost($monthInput, $monthOutput, null, $provider),
+                ],
+                'all_time' => [
+                    'tokens_input' => $allTimeInput,
+                    'tokens_output' => $allTimeOutput,
+                    'total' => $allTimeInput + $allTimeOutput,
+                    'estimated_cost' => $this->calculateCost($allTimeInput, $allTimeOutput, null, $provider),
+                ],
+            ];
+        }
+
+        // Calculate totals
+        $totalToday = 0;
+        $totalMonth = 0;
+        $totalAllTime = 0;
+        $totalCostToday = 0;
+        $totalCostMonth = 0;
+        $totalCostAllTime = 0;
+
+        foreach ($result as $providerData) {
+            $totalToday += $providerData['today']['total'];
+            $totalMonth += $providerData['month']['total'];
+            $totalAllTime += $providerData['all_time']['total'];
+            $totalCostToday += $providerData['today']['estimated_cost'];
+            $totalCostMonth += $providerData['month']['estimated_cost'];
+            $totalCostAllTime += $providerData['all_time']['estimated_cost'];
+        }
+
+        $result['totals'] = [
+            'today' => ['total' => $totalToday, 'estimated_cost' => round($totalCostToday, 4)],
+            'month' => ['total' => $totalMonth, 'estimated_cost' => round($totalCostMonth, 4)],
+            'all_time' => ['total' => $totalAllTime, 'estimated_cost' => round($totalCostAllTime, 4)],
+        ];
+
+        return $result;
+    }
+
+    /**
+     * Get top users by token consumption
+     */
+    public function getTopUsersByUsage(int $limit = 10, ?string $provider = null): array
+    {
+        $query = TokenUsage::whereMonth('date', now()->month)
+            ->whereYear('date', now()->year)
+            ->selectRaw('user_id, SUM(tokens_input) as input, SUM(tokens_output) as output, SUM(tokens_input + tokens_output) as total');
+
+        if ($provider) {
+            $query->where('provider', $provider);
+        }
+
+        return $query->groupBy('user_id')
+            ->orderByDesc('total')
+            ->limit($limit)
+            ->with('user:id,name,email')
+            ->get()
+            ->map(function ($item) {
+                return [
+                    'user_id' => $item->user_id,
+                    'name' => $item->user->name ?? 'Usuario eliminado',
+                    'email' => $item->user->email ?? '-',
+                    'tokens_input' => (int) $item->input,
+                    'tokens_output' => (int) $item->output,
+                    'total' => (int) $item->total,
+                ];
+            })
+            ->toArray();
+    }
+
+    /**
+     * Get usage breakdown by user (for admin dashboard)
+     */
+    public function getUsersUsageBreakdown(): array
+    {
+        // Get all users with their monthly usage by provider
+        $usage = TokenUsage::whereMonth('date', now()->month)
+            ->whereYear('date', now()->year)
+            ->selectRaw('user_id, provider, SUM(tokens_input) as input, SUM(tokens_output) as output')
+            ->groupBy('user_id', 'provider')
+            ->get();
+
+        $userStats = [];
+
+        foreach ($usage as $item) {
+            $userId = $item->user_id;
+            if (!isset($userStats[$userId])) {
+                $userStats[$userId] = [
+                    'openai' => ['input' => 0, 'output' => 0, 'total' => 0, 'cost' => 0],
+                    'deepseek' => ['input' => 0, 'output' => 0, 'total' => 0, 'cost' => 0],
+                    'total' => 0,
+                    'total_cost' => 0,
+                ];
+            }
+
+            $input = (int) $item->input;
+            $output = (int) $item->output;
+            $total = $input + $output;
+            $cost = $this->calculateCost($input, $output, null, $item->provider);
+
+            $userStats[$userId][$item->provider] = [
+                'input' => $input,
+                'output' => $output,
+                'total' => $total,
+                'cost' => $cost,
+            ];
+            $userStats[$userId]['total'] += $total;
+            $userStats[$userId]['total_cost'] += $cost;
+        }
+
+        // Get user info
+        $userIds = array_keys($userStats);
+        $users = User::whereIn('id', $userIds)->get()->keyBy('id');
+
+        $result = [];
+        foreach ($userStats as $userId => $stats) {
+            $user = $users->get($userId);
+            $result[] = [
+                'user_id' => $userId,
+                'name' => $user->name ?? 'Usuario eliminado',
+                'email' => $user->email ?? '-',
+                'openai' => $stats['openai'],
+                'deepseek' => $stats['deepseek'],
+                'total' => $stats['total'],
+                'total_cost' => round($stats['total_cost'], 4),
+            ];
+        }
+
+        // Sort by total usage descending
+        usort($result, fn($a, $b) => $b['total'] - $a['total']);
+
+        return array_slice($result, 0, 20); // Top 20 users
+    }
+
+    /**
+     * Get OpenAI usage statistics with cost estimation (for admin) - LEGACY
      */
     public function getOpenAIUsageStats(): array
     {

@@ -34,7 +34,10 @@
       "Bash(Get-Content storage/logs/laravel.log -Tail 200)",
       "Bash(Select-String -Pattern \"OpenAI|error|warning\" -CaseSensitive:$false)",
       "Bash(powershell:*)",
-      "Bash(git log:*)"
+      "Bash(git log:*)",
+      "WebFetch(domain:api-docs.deepseek.com)",
+      "Bash(echo:*)",
+      "Bash(find:*)"
     ]
   }
 }

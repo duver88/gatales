@@ -6,19 +6,22 @@ const stats = ref(null)
 const tokenChart = ref([])
 const recentUsers = ref([])
 const openaiStats = ref(null)
+const providerStats = ref(null)
 const isLoading = ref(true)
 const error = ref(null)
 
 onMounted(async () => {
   try {
-    const [dashboardRes, openaiRes] = await Promise.all([
+    const [dashboardRes, openaiRes, providerRes] = await Promise.all([
       adminApi.getDashboard(),
-      adminApi.getOpenAIStats()
+      adminApi.getOpenAIStats(),
+      adminApi.getProviderStats()
     ])
     stats.value = dashboardRes.data.stats
     tokenChart.value = dashboardRes.data.token_usage_chart
     recentUsers.value = dashboardRes.data.recent_users
     openaiStats.value = openaiRes.data.openai_usage
+    providerStats.value = providerRes.data
   } catch (e) {
     error.value = 'Error al cargar el dashboard'
   } finally {
@@ -72,7 +75,7 @@ function getChartBarHeight(value) {
 
 function getDayName(dateStr) {
   const date = new Date(dateStr)
-  const days = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb']
+  const days = ['Dom', 'Lun', 'Mar', 'Mie', 'Jue', 'Vie', 'Sab']
   return days[date.getDay()]
 }
 </script>
@@ -82,7 +85,7 @@ function getDayName(dateStr) {
     <!-- Header -->
     <div class="mb-6">
       <h1 class="text-2xl font-bold text-text-primary">Dashboard</h1>
-      <p class="text-sm text-text-secondary mt-1">Bienvenido al panel de administración de El Cursales</p>
+      <p class="text-sm text-text-secondary mt-1">Panel de administracion</p>
     </div>
 
     <!-- Loading -->
@@ -102,7 +105,7 @@ function getDayName(dateStr) {
     </div>
 
     <template v-else>
-      <!-- Stats Cards - TailAdmin Style -->
+      <!-- Stats Cards -->
       <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 mb-6">
         <!-- Total Users -->
         <div class="bg-bg-card border border-border rounded-xl p-5 hover:border-brand/30 transition-colors">
@@ -165,6 +168,231 @@ function getDayName(dateStr) {
         </div>
       </div>
 
+      <!-- Provider Stats (OpenAI vs DeepSeek) -->
+      <div v-if="providerStats" class="bg-bg-card border border-border rounded-xl p-5 mb-6">
+        <div class="flex items-center gap-3 mb-6">
+          <div class="w-10 h-10 bg-brand/10 rounded-xl flex items-center justify-center">
+            <svg class="w-5 h-5 text-brand" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+            </svg>
+          </div>
+          <div>
+            <h2 class="text-lg font-semibold text-text-primary">Consumo por Proveedor</h2>
+            <p class="text-sm text-text-secondary">OpenAI vs DeepSeek (Usuarios + Admin)</p>
+          </div>
+        </div>
+
+        <!-- Combined Stats Grid -->
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+          <!-- Today -->
+          <div class="bg-bg-secondary rounded-xl p-4 border border-border">
+            <div class="flex items-center justify-between mb-4">
+              <span class="text-sm font-medium text-text-secondary">Hoy</span>
+              <span class="text-xs px-2 py-1 bg-brand/10 text-brand rounded-full">En vivo</span>
+            </div>
+            <div class="space-y-3">
+              <!-- OpenAI -->
+              <div class="flex items-center justify-between p-2 bg-green-500/10 rounded-lg">
+                <div class="flex items-center gap-2">
+                  <div class="w-2 h-2 bg-green-500 rounded-full"></div>
+                  <span class="text-sm text-text-primary">OpenAI</span>
+                </div>
+                <div class="text-right">
+                  <p class="text-sm font-medium text-text-primary">{{ formatNumber(providerStats.combined.today.openai.tokens) }}</p>
+                  <p class="text-xs text-green-400">{{ formatCurrency(providerStats.combined.today.openai.cost) }}</p>
+                </div>
+              </div>
+              <!-- DeepSeek -->
+              <div class="flex items-center justify-between p-2 bg-blue-500/10 rounded-lg">
+                <div class="flex items-center gap-2">
+                  <div class="w-2 h-2 bg-blue-500 rounded-full"></div>
+                  <span class="text-sm text-text-primary">DeepSeek</span>
+                </div>
+                <div class="text-right">
+                  <p class="text-sm font-medium text-text-primary">{{ formatNumber(providerStats.combined.today.deepseek.tokens) }}</p>
+                  <p class="text-xs text-blue-400">{{ formatCurrency(providerStats.combined.today.deepseek.cost) }}</p>
+                </div>
+              </div>
+              <!-- Total -->
+              <div class="pt-2 border-t border-border flex justify-between">
+                <span class="text-sm text-text-secondary">Total</span>
+                <div class="text-right">
+                  <p class="font-bold text-text-primary">{{ formatNumber(providerStats.combined.today.total_tokens) }}</p>
+                  <p class="text-sm font-medium text-success">{{ formatCurrency(providerStats.combined.today.total_cost) }}</p>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- This Month -->
+          <div class="bg-bg-secondary rounded-xl p-4 border border-border">
+            <div class="flex items-center justify-between mb-4">
+              <span class="text-sm font-medium text-text-secondary">Este Mes</span>
+            </div>
+            <div class="space-y-3">
+              <!-- OpenAI -->
+              <div class="flex items-center justify-between p-2 bg-green-500/10 rounded-lg">
+                <div class="flex items-center gap-2">
+                  <div class="w-2 h-2 bg-green-500 rounded-full"></div>
+                  <span class="text-sm text-text-primary">OpenAI</span>
+                </div>
+                <div class="text-right">
+                  <p class="text-sm font-medium text-text-primary">{{ formatNumber(providerStats.combined.month.openai.tokens) }}</p>
+                  <p class="text-xs text-green-400">{{ formatCurrency(providerStats.combined.month.openai.cost) }}</p>
+                </div>
+              </div>
+              <!-- DeepSeek -->
+              <div class="flex items-center justify-between p-2 bg-blue-500/10 rounded-lg">
+                <div class="flex items-center gap-2">
+                  <div class="w-2 h-2 bg-blue-500 rounded-full"></div>
+                  <span class="text-sm text-text-primary">DeepSeek</span>
+                </div>
+                <div class="text-right">
+                  <p class="text-sm font-medium text-text-primary">{{ formatNumber(providerStats.combined.month.deepseek.tokens) }}</p>
+                  <p class="text-xs text-blue-400">{{ formatCurrency(providerStats.combined.month.deepseek.cost) }}</p>
+                </div>
+              </div>
+              <!-- Total -->
+              <div class="pt-2 border-t border-border flex justify-between">
+                <span class="text-sm text-text-secondary">Total</span>
+                <div class="text-right">
+                  <p class="font-bold text-text-primary">{{ formatNumber(providerStats.combined.month.total_tokens) }}</p>
+                  <p class="text-sm font-medium text-success">{{ formatCurrency(providerStats.combined.month.total_cost) }}</p>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- All Time -->
+          <div class="bg-bg-secondary rounded-xl p-4 border border-border">
+            <div class="flex items-center justify-between mb-4">
+              <span class="text-sm font-medium text-text-secondary">Total Historico</span>
+            </div>
+            <div class="space-y-3">
+              <!-- OpenAI -->
+              <div class="flex items-center justify-between p-2 bg-green-500/10 rounded-lg">
+                <div class="flex items-center gap-2">
+                  <div class="w-2 h-2 bg-green-500 rounded-full"></div>
+                  <span class="text-sm text-text-primary">OpenAI</span>
+                </div>
+                <div class="text-right">
+                  <p class="text-sm font-medium text-text-primary">{{ formatNumber(providerStats.combined.all_time.openai.tokens) }}</p>
+                  <p class="text-xs text-green-400">{{ formatCurrency(providerStats.combined.all_time.openai.cost) }}</p>
+                </div>
+              </div>
+              <!-- DeepSeek -->
+              <div class="flex items-center justify-between p-2 bg-blue-500/10 rounded-lg">
+                <div class="flex items-center gap-2">
+                  <div class="w-2 h-2 bg-blue-500 rounded-full"></div>
+                  <span class="text-sm text-text-primary">DeepSeek</span>
+                </div>
+                <div class="text-right">
+                  <p class="text-sm font-medium text-text-primary">{{ formatNumber(providerStats.combined.all_time.deepseek.tokens) }}</p>
+                  <p class="text-xs text-blue-400">{{ formatCurrency(providerStats.combined.all_time.deepseek.cost) }}</p>
+                </div>
+              </div>
+              <!-- Total -->
+              <div class="pt-2 border-t border-border flex justify-between">
+                <span class="text-sm text-text-secondary">Total</span>
+                <div class="text-right">
+                  <p class="font-bold text-text-primary">{{ formatNumber(providerStats.combined.all_time.total_tokens) }}</p>
+                  <p class="text-sm font-medium text-success">{{ formatCurrency(providerStats.combined.all_time.total_cost) }}</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Admin vs Users Breakdown -->
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <!-- Users Usage -->
+          <div class="bg-bg-secondary rounded-xl p-4 border border-border">
+            <h3 class="text-sm font-semibold text-text-primary mb-3 flex items-center gap-2">
+              <svg class="w-4 h-4 text-brand" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" />
+              </svg>
+              Uso Usuarios (Este Mes)
+            </h3>
+            <div class="space-y-2">
+              <div class="flex justify-between text-sm">
+                <span class="text-text-muted">OpenAI</span>
+                <span class="text-green-400">{{ formatNumber(providerStats.user_usage?.openai?.month?.total || 0) }} ({{ formatCurrency(providerStats.user_usage?.openai?.month?.estimated_cost || 0) }})</span>
+              </div>
+              <div class="flex justify-between text-sm">
+                <span class="text-text-muted">DeepSeek</span>
+                <span class="text-blue-400">{{ formatNumber(providerStats.user_usage?.deepseek?.month?.total || 0) }} ({{ formatCurrency(providerStats.user_usage?.deepseek?.month?.estimated_cost || 0) }})</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Admin Usage -->
+          <div class="bg-bg-secondary rounded-xl p-4 border border-border">
+            <h3 class="text-sm font-semibold text-text-primary mb-3 flex items-center gap-2">
+              <svg class="w-4 h-4 text-warning" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
+              </svg>
+              Uso Admin/Pruebas (Este Mes)
+            </h3>
+            <div class="space-y-2">
+              <div class="flex justify-between text-sm">
+                <span class="text-text-muted">OpenAI</span>
+                <span class="text-green-400">{{ formatNumber(providerStats.admin_usage?.openai?.month?.total || 0) }} ({{ formatCurrency(providerStats.admin_usage?.openai?.month?.estimated_cost || 0) }})</span>
+              </div>
+              <div class="flex justify-between text-sm">
+                <span class="text-text-muted">DeepSeek</span>
+                <span class="text-blue-400">{{ formatNumber(providerStats.admin_usage?.deepseek?.month?.total || 0) }} ({{ formatCurrency(providerStats.admin_usage?.deepseek?.month?.estimated_cost || 0) }})</span>
+              </div>
+              <div class="pt-2 border-t border-border flex justify-between text-sm">
+                <span class="text-text-secondary">Total Admin</span>
+                <span class="font-medium text-warning">{{ formatNumber(providerStats.admin_usage?.totals?.month?.total || 0) }} ({{ formatCurrency(providerStats.admin_usage?.totals?.month?.estimated_cost || 0) }})</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Top Users by Usage This Month -->
+      <div v-if="providerStats?.users_breakdown?.length" class="bg-bg-card border border-border rounded-xl p-5 mb-6">
+        <div class="flex items-center justify-between mb-4">
+          <h2 class="text-lg font-semibold text-text-primary">Top Usuarios por Consumo (Este Mes)</h2>
+        </div>
+        <div class="overflow-x-auto">
+          <table class="w-full">
+            <thead>
+              <tr class="bg-bg-secondary">
+                <th class="px-4 py-2 text-left text-xs font-semibold text-text-secondary uppercase">Usuario</th>
+                <th class="px-4 py-2 text-right text-xs font-semibold text-text-secondary uppercase">OpenAI</th>
+                <th class="px-4 py-2 text-right text-xs font-semibold text-text-secondary uppercase">DeepSeek</th>
+                <th class="px-4 py-2 text-right text-xs font-semibold text-text-secondary uppercase">Total</th>
+                <th class="px-4 py-2 text-right text-xs font-semibold text-text-secondary uppercase">Costo</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-border">
+              <tr v-for="user in providerStats.users_breakdown.slice(0, 10)" :key="user.user_id" class="hover:bg-bg-hover">
+                <td class="px-4 py-3">
+                  <div>
+                    <p class="text-sm font-medium text-text-primary">{{ user.name }}</p>
+                    <p class="text-xs text-text-muted">{{ user.email }}</p>
+                  </div>
+                </td>
+                <td class="px-4 py-3 text-right">
+                  <span class="text-sm text-green-400">{{ formatNumber(user.openai.total) }}</span>
+                </td>
+                <td class="px-4 py-3 text-right">
+                  <span class="text-sm text-blue-400">{{ formatNumber(user.deepseek.total) }}</span>
+                </td>
+                <td class="px-4 py-3 text-right">
+                  <span class="text-sm font-medium text-text-primary">{{ formatNumber(user.total) }}</span>
+                </td>
+                <td class="px-4 py-3 text-right">
+                  <span class="text-sm font-medium text-success">{{ formatCurrency(user.total_cost) }}</span>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
       <!-- Main Grid -->
       <div class="grid grid-cols-1 xl:grid-cols-3 gap-6 mb-6">
         <!-- Token Usage Chart - Takes 2 columns -->
@@ -172,7 +400,7 @@ function getDayName(dateStr) {
           <div class="flex items-center justify-between mb-6">
             <div>
               <h2 class="text-lg font-semibold text-text-primary">Consumo de Tokens</h2>
-              <p class="text-sm text-text-secondary">Últimos 7 días</p>
+              <p class="text-sm text-text-secondary">Ultimos 7 dias</p>
             </div>
             <div class="flex items-center gap-2 text-sm">
               <span class="w-3 h-3 bg-brand rounded-full"></span>
@@ -239,97 +467,16 @@ function getDayName(dateStr) {
         </div>
       </div>
 
-      <!-- OpenAI Stats -->
-      <div v-if="openaiStats" class="bg-bg-card border border-border rounded-xl p-5 mb-6">
-        <div class="flex items-center gap-3 mb-6">
-          <div class="w-10 h-10 bg-success/10 rounded-xl flex items-center justify-center">
-            <svg class="w-5 h-5 text-success" viewBox="0 0 24 24" fill="currentColor">
-              <path d="M22.2819 9.8211a5.9847 5.9847 0 0 0-.5157-4.9108 6.0462 6.0462 0 0 0-6.5098-2.9A6.0651 6.0651 0 0 0 4.9807 4.1818a5.9847 5.9847 0 0 0-3.9977 2.9 6.0462 6.0462 0 0 0 .7427 7.0966 5.98 5.98 0 0 0 .511 4.9107 6.051 6.051 0 0 0 6.5146 2.9001A5.9847 5.9847 0 0 0 13.2599 24a6.0557 6.0557 0 0 0 5.7718-4.2058 5.9894 5.9894 0 0 0 3.9977-2.9001 6.0557 6.0557 0 0 0-.7475-7.0729zm-9.022 12.6081a4.4755 4.4755 0 0 1-2.8764-1.0408l.1419-.0804 4.7783-2.7582a.7948.7948 0 0 0 .3927-.6813v-6.7369l2.02 1.1686a.071.071 0 0 1 .038.052v5.5826a4.504 4.504 0 0 1-4.4945 4.4944zm-9.6607-4.1254a4.4708 4.4708 0 0 1-.5346-3.0137l.142.0852 4.783 2.7582a.7712.7712 0 0 0 .7806 0l5.8428-3.3685v2.3324a.0804.0804 0 0 1-.0332.0615L9.74 19.9502a4.4992 4.4992 0 0 1-6.1408-1.6464zM2.3408 7.8956a4.485 4.485 0 0 1 2.3655-1.9728V11.6a.7664.7664 0 0 0 .3879.6765l5.8144 3.3543-2.0201 1.1685a.0757.0757 0 0 1-.071 0l-4.8303-2.7865A4.504 4.504 0 0 1 2.3408 7.8956zm16.5963 3.8558L13.1038 8.364 15.1192 7.2a.0757.0757 0 0 1 .071 0l4.8303 2.7913a4.4944 4.4944 0 0 1-.6765 8.1042v-5.6772a.79.79 0 0 0-.407-.667zm2.0107-3.0231l-.142-.0852-4.7735-2.7818a.7759.7759 0 0 0-.7854 0L9.409 9.2297V6.8974a.0662.0662 0 0 1 .0284-.0615l4.8303-2.7866a4.4992 4.4992 0 0 1 6.6802 4.66zM8.3065 12.863l-2.02-1.1638a.0804.0804 0 0 1-.038-.0567V6.0742a4.4992 4.4992 0 0 1 7.3757-3.4537l-.142.0805L8.704 5.459a.7948.7948 0 0 0-.3927.6813zm1.0976-2.3654l2.602-1.4998 2.6069 1.4998v2.9994l-2.5974 1.4997-2.6067-1.4997Z"/>
-            </svg>
-          </div>
-          <div>
-            <h2 class="text-lg font-semibold text-text-primary">Uso de OpenAI</h2>
-            <p class="text-sm text-text-secondary">Modelo: {{ openaiStats.pricing_info.model }}</p>
-          </div>
-        </div>
-
-        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <!-- Today -->
-          <div class="bg-bg-secondary rounded-xl p-4 border border-border">
-            <div class="flex items-center justify-between mb-3">
-              <span class="text-sm font-medium text-text-secondary">Hoy</span>
-              <span class="text-xs px-2 py-1 bg-brand/10 text-brand rounded-full">En vivo</span>
-            </div>
-            <div class="space-y-2">
-              <div class="flex justify-between text-sm">
-                <span class="text-text-muted">Input</span>
-                <span class="text-text-primary font-medium">{{ formatNumber(openaiStats.today.tokens_input) }}</span>
-              </div>
-              <div class="flex justify-between text-sm">
-                <span class="text-text-muted">Output</span>
-                <span class="text-text-primary font-medium">{{ formatNumber(openaiStats.today.tokens_output) }}</span>
-              </div>
-              <div class="pt-2 border-t border-border flex justify-between">
-                <span class="text-sm text-text-secondary">Costo</span>
-                <span class="text-lg font-bold text-success">{{ formatCurrency(openaiStats.today.estimated_cost) }}</span>
-              </div>
-            </div>
-          </div>
-
-          <!-- This Month -->
-          <div class="bg-bg-secondary rounded-xl p-4 border border-border">
-            <div class="flex items-center justify-between mb-3">
-              <span class="text-sm font-medium text-text-secondary">Este Mes</span>
-            </div>
-            <div class="space-y-2">
-              <div class="flex justify-between text-sm">
-                <span class="text-text-muted">Input</span>
-                <span class="text-text-primary font-medium">{{ formatNumber(openaiStats.month.tokens_input) }}</span>
-              </div>
-              <div class="flex justify-between text-sm">
-                <span class="text-text-muted">Output</span>
-                <span class="text-text-primary font-medium">{{ formatNumber(openaiStats.month.tokens_output) }}</span>
-              </div>
-              <div class="pt-2 border-t border-border flex justify-between">
-                <span class="text-sm text-text-secondary">Costo</span>
-                <span class="text-lg font-bold text-success">{{ formatCurrency(openaiStats.month.estimated_cost) }}</span>
-              </div>
-            </div>
-          </div>
-
-          <!-- All Time -->
-          <div class="bg-bg-secondary rounded-xl p-4 border border-border">
-            <div class="flex items-center justify-between mb-3">
-              <span class="text-sm font-medium text-text-secondary">Total Histórico</span>
-            </div>
-            <div class="space-y-2">
-              <div class="flex justify-between text-sm">
-                <span class="text-text-muted">Input</span>
-                <span class="text-text-primary font-medium">{{ formatNumber(openaiStats.all_time.tokens_input) }}</span>
-              </div>
-              <div class="flex justify-between text-sm">
-                <span class="text-text-muted">Output</span>
-                <span class="text-text-primary font-medium">{{ formatNumber(openaiStats.all_time.tokens_output) }}</span>
-              </div>
-              <div class="pt-2 border-t border-border flex justify-between">
-                <span class="text-sm text-text-secondary">Costo</span>
-                <span class="text-lg font-bold text-success">{{ formatCurrency(openaiStats.all_time.estimated_cost) }}</span>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-
       <!-- Recent Users Table -->
       <div class="bg-bg-card border border-border rounded-xl overflow-hidden">
         <div class="p-5 border-b border-border">
           <div class="flex items-center justify-between">
             <div>
               <h2 class="text-lg font-semibold text-text-primary">Usuarios Recientes</h2>
-              <p class="text-sm text-text-secondary">Últimos usuarios registrados</p>
+              <p class="text-sm text-text-secondary">Ultimos usuarios registrados</p>
             </div>
             <router-link to="/admin/users" class="text-sm text-brand hover:text-brand-hover font-medium">
-              Ver todos →
+              Ver todos
             </router-link>
           </div>
         </div>

@@ -26,6 +26,10 @@ class DeepSeekService
      */
     public function sendMessage(User $user, string $message, ?Conversation $conversation = null): array
     {
+        if (empty($this->apiKey)) {
+            throw new \Exception('DeepSeek API key not configured. Set DEEPSEEK_API_KEY in .env');
+        }
+
         $assistant = $conversation?->assistant ?? $user->getAssistant();
         $settings = $assistant ? $assistant->toSettingsArray() : AiSetting::getAllValues();
 
@@ -74,6 +78,10 @@ class DeepSeekService
      */
     public function sendMessageStreamed(User $user, string $message, ?Conversation $conversation = null): \Generator
     {
+        if (empty($this->apiKey)) {
+            throw new \Exception('DeepSeek API key not configured. Set DEEPSEEK_API_KEY in .env');
+        }
+
         $assistant = $conversation?->assistant ?? $user->getAssistant();
         $settings = $assistant ? $assistant->toSettingsArray() : AiSetting::getAllValues();
 
@@ -89,34 +97,13 @@ class DeepSeekService
         $requestParams = $this->buildRequestParams($settings, $messages, $assistant);
         $requestParams['stream'] = true;
 
-        // Use cURL for streaming
-        $ch = curl_init($this->baseUrl . '/chat/completions');
-        curl_setopt_array($ch, [
-            CURLOPT_POST => true,
-            CURLOPT_POSTFIELDS => json_encode($requestParams),
-            CURLOPT_HTTPHEADER => [
-                'Authorization: Bearer ' . $this->apiKey,
-                'Content-Type: application/json',
-                'Accept: text/event-stream',
-            ],
-            CURLOPT_RETURNTRANSFER => false,
-            CURLOPT_TIMEOUT => 300,
-            CURLOPT_WRITEFUNCTION => function ($ch, $data) use (&$buffer, &$fullContent, &$tokensInput, &$tokensOutput, &$messageId, &$chunks) {
-                $buffer .= $data;
-                return strlen($data);
-            },
-        ]);
-
-        // Alternative: use streaming with generator
         $fullContent = '';
         $tokensInput = 0;
         $tokensOutput = 0;
         $messageId = null;
+        $chunks = [];
 
         $ch = curl_init($this->baseUrl . '/chat/completions');
-
-        $responseBody = '';
-
         curl_setopt_array($ch, [
             CURLOPT_POST => true,
             CURLOPT_POSTFIELDS => json_encode($requestParams),
@@ -127,21 +114,31 @@ class DeepSeekService
             ],
             CURLOPT_RETURNTRANSFER => true,
             CURLOPT_TIMEOUT => 300,
+            CURLOPT_WRITEFUNCTION => function ($ch, $data) use (&$chunks) {
+                $chunks[] = $data;
+                return strlen($data);
+            },
         ]);
-
-        // For proper streaming, we need to use a callback
-        $chunks = [];
-        curl_setopt($ch, CURLOPT_WRITEFUNCTION, function ($ch, $data) use (&$chunks) {
-            $chunks[] = $data;
-            return strlen($data);
-        });
 
         curl_exec($ch);
         $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $curlError = curl_error($ch);
         curl_close($ch);
 
         if ($httpCode !== 200) {
-            throw new \Exception('DeepSeek streaming error: HTTP ' . $httpCode);
+            $responseBody = implode('', $chunks);
+            Log::error('DeepSeek streaming error', [
+                'http_code' => $httpCode,
+                'response_body' => $responseBody,
+                'curl_error' => $curlError,
+                'request_params' => $requestParams,
+            ]);
+
+            // Try to extract error message from response
+            $errorData = json_decode($responseBody, true);
+            $errorMessage = $errorData['error']['message'] ?? $errorData['message'] ?? $responseBody;
+
+            throw new \Exception('DeepSeek API error (HTTP ' . $httpCode . '): ' . $errorMessage);
         }
 
         // Process chunks
@@ -211,6 +208,7 @@ class DeepSeekService
     {
         $model = $assistant?->model ?? $settings['model'] ?? 'deepseek-chat';
         $maxTokens = (int) ($settings['max_tokens'] ?? 2000);
+        $isReasoner = str_contains($model, 'reasoner');
 
         $params = [
             'model' => $model,
@@ -218,28 +216,31 @@ class DeepSeekService
             'max_tokens' => $maxTokens,
         ];
 
-        // DeepSeek supports temperature (except for reasoner in some modes)
-        if (!empty($settings['temperature'])) {
-            $params['temperature'] = (float) $settings['temperature'];
+        // DeepSeek reasoner doesn't support temperature/top_p customization
+        if (!$isReasoner) {
+            // Temperature
+            if (!empty($settings['temperature'])) {
+                $params['temperature'] = (float) $settings['temperature'];
+            }
+
+            // Top P
+            if (!empty($settings['top_p']) && $settings['top_p'] !== '1') {
+                $params['top_p'] = (float) $settings['top_p'];
+            }
         }
 
-        // Top P
-        if (!empty($settings['top_p']) && $settings['top_p'] !== '1') {
-            $params['top_p'] = (float) $settings['top_p'];
-        }
-
-        // Frequency penalty
+        // Frequency penalty (supported by both models)
         if (!empty($settings['frequency_penalty']) && $settings['frequency_penalty'] !== '0') {
             $params['frequency_penalty'] = (float) $settings['frequency_penalty'];
         }
 
-        // Presence penalty
+        // Presence penalty (supported by both models)
         if (!empty($settings['presence_penalty']) && $settings['presence_penalty'] !== '0') {
             $params['presence_penalty'] = (float) $settings['presence_penalty'];
         }
 
-        // Response format (JSON mode)
-        if (!empty($settings['response_format']) && $settings['response_format'] === 'json_object') {
+        // Response format (JSON mode) - NOT supported by reasoner
+        if (!$isReasoner && !empty($settings['response_format']) && $settings['response_format'] === 'json_object') {
             $params['response_format'] = ['type' => 'json_object'];
         }
 
@@ -251,6 +252,14 @@ class DeepSeekService
                 $params['stop'] = array_slice($stopSequences, 0, 4);
             }
         }
+
+        Log::debug('DeepSeek request params', [
+            'model' => $model,
+            'is_reasoner' => $isReasoner,
+            'max_tokens' => $maxTokens,
+            'has_temperature' => isset($params['temperature']),
+            'has_top_p' => isset($params['top_p']),
+        ]);
 
         return $params;
     }

@@ -217,6 +217,7 @@ export const adminApi = {
   getDashboard: () => api.get('/admin/dashboard'),
   getTokenStats: () => api.get('/admin/stats/tokens'),
   getOpenAIStats: () => api.get('/admin/stats/openai'),
+  getProviderStats: () => api.get('/admin/stats/providers'),
 
   // Users
   getUsers: (params) => api.get('/admin/users', { params }),
@@ -306,6 +307,7 @@ export const adminApi = {
       const reader = response.body.getReader()
       const decoder = new TextDecoder()
       let buffer = ''
+      let currentEvent = null  // MOVED OUTSIDE loop to persist across chunks
 
       while (true) {
         const { done, value } = await reader.read()
@@ -316,7 +318,6 @@ export const adminApi = {
         const lines = buffer.split('\n')
         buffer = lines.pop() || ''
 
-        let currentEvent = null
         for (const line of lines) {
           if (line.startsWith('event: ')) {
             currentEvent = line.slice(7).trim()

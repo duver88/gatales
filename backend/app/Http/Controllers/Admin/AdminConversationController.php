@@ -6,9 +6,12 @@ use App\Http\Controllers\Controller;
 use App\Models\Assistant;
 use App\Models\Conversation;
 use App\Models\Message;
+use App\Services\DeepSeekService;
 use App\Services\OpenAIAssistantService;
+use App\Services\TokenService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 use OpenAI\Laravel\Facades\OpenAI;
 use Symfony\Component\HttpFoundation\StreamedResponse;
@@ -16,7 +19,9 @@ use Symfony\Component\HttpFoundation\StreamedResponse;
 class AdminConversationController extends Controller
 {
     public function __construct(
-        private OpenAIAssistantService $assistantService
+        private OpenAIAssistantService $assistantService,
+        private DeepSeekService $deepSeekService,
+        private TokenService $tokenService
     ) {}
 
     /**
@@ -166,10 +171,14 @@ class AdminConversationController extends Controller
             // Check if first message to generate title
             $isFirstMessage = $conversation->messages()->count() === 0;
 
+            // Determine provider
+            $provider = $assistant->isDeepSeek() ? 'deepseek' : 'openai';
+
             // Save user message
             Message::create([
                 'user_id' => null, // Admin test, no user
                 'conversation_id' => $conversation->id,
+                'provider' => $provider,
                 'role' => 'user',
                 'content' => $validated['message'],
                 'tokens_input' => 0,
@@ -192,8 +201,53 @@ class AdminConversationController extends Controller
                 })
                 ->toArray();
 
-            // Check if using Responses API (knowledge base enabled)
-            if ($assistant->usesResponsesApi()) {
+            // Check if using DeepSeek
+            if ($assistant->isDeepSeek()) {
+                // Build messages array for DeepSeek
+                $messages = [
+                    ['role' => 'system', 'content' => $settings['system_prompt']],
+                ];
+                foreach ($context as $msg) {
+                    $messages[] = $msg;
+                }
+                $messages[] = ['role' => 'user', 'content' => $validated['message']];
+
+                // Call DeepSeek API directly
+                $apiKey = config('services.deepseek.api_key');
+                if (!$apiKey) {
+                    throw new \Exception('DeepSeek API key not configured');
+                }
+
+                $isReasoner = str_contains($model, 'reasoner');
+                $params = [
+                    'model' => $model,
+                    'messages' => $messages,
+                    'max_tokens' => (int) ($settings['max_tokens'] ?? 2000),
+                ];
+
+                if (!$isReasoner) {
+                    $params['temperature'] = (float) ($settings['temperature'] ?? 0.7);
+                }
+
+                $response = \Illuminate\Support\Facades\Http::withHeaders([
+                    'Authorization' => 'Bearer ' . $apiKey,
+                    'Content-Type' => 'application/json',
+                ])->timeout(120)->post('https://api.deepseek.com/chat/completions', $params);
+
+                if (!$response->successful()) {
+                    $errorBody = $response->json();
+                    $errorMessage = $errorBody['error']['message'] ?? $errorBody['message'] ?? $response->body();
+                    throw new \Exception('DeepSeek API error: ' . $errorMessage);
+                }
+
+                $data = $response->json();
+                $content = $data['choices'][0]['message']['content'] ?? '';
+                $tokensInput = $data['usage']['prompt_tokens'] ?? 0;
+                $tokensOutput = $data['usage']['completion_tokens'] ?? 0;
+                $usedKnowledgeBase = false;
+            }
+            // Check if using Responses API (knowledge base enabled) - OpenAI only
+            elseif ($assistant->usesResponsesApi()) {
                 // Use the OpenAIAssistantService for Responses API
                 $response = $this->assistantService->sendMessageForTest(
                     $validated['message'],
@@ -249,6 +303,7 @@ class AdminConversationController extends Controller
             $assistantMessage = Message::create([
                 'user_id' => null,
                 'conversation_id' => $conversation->id,
+                'provider' => $provider,
                 'role' => 'assistant',
                 'content' => $content,
                 'tokens_input' => $tokensInput,
@@ -257,6 +312,15 @@ class AdminConversationController extends Controller
 
             // Update conversation stats
             $conversation->updateTokenStats($tokensInput, $tokensOutput);
+
+            // Record admin token usage
+            $this->tokenService->recordAdminUsage(
+                $admin->id,
+                $tokensInput,
+                $tokensOutput,
+                $provider,
+                $assistant->id
+            );
 
             // Generate title if first message
             if ($isFirstMessage) {
@@ -318,8 +382,10 @@ class AdminConversationController extends Controller
 
         $message = $validated['message'];
         $usesResponsesApi = $assistant->usesResponsesApi();
+        $isDeepSeek = $assistant->isDeepSeek();
+        $provider = $isDeepSeek ? 'deepseek' : 'openai';
 
-        return new StreamedResponse(function () use ($admin, $message, $conversation, $assistant, $usesResponsesApi) {
+        return new StreamedResponse(function () use ($admin, $message, $conversation, $assistant, $usesResponsesApi, $isDeepSeek, $provider) {
             // Deshabilitar timeout de PHP para streaming largo (GPT-5 puede tardar varios minutos)
             set_time_limit(0);
 
@@ -348,6 +414,7 @@ class AdminConversationController extends Controller
                 $userMessage = Message::create([
                     'user_id' => null,
                     'conversation_id' => $conversation->id,
+                    'provider' => $provider,
                     'role' => 'user',
                     'content' => $message,
                     'tokens_input' => 0,
@@ -367,7 +434,182 @@ class AdminConversationController extends Controller
                 $tokensInput = 0;
                 $tokensOutput = 0;
 
-                if ($usesResponsesApi) {
+                if ($isDeepSeek) {
+                    // Use DeepSeek API with streaming
+                    $apiKey = config('services.deepseek.api_key');
+                    if (!$apiKey) {
+                        throw new \Exception('DeepSeek API key not configured');
+                    }
+
+                    $settings = $assistant->toSettingsArray();
+                    $model = $settings['model'];
+                    $isReasoner = str_contains($model, 'reasoner');
+
+                    // Build messages
+                    $messages = [['role' => 'system', 'content' => $settings['system_prompt']]];
+                    foreach ($context as $msg) {
+                        $messages[] = $msg;
+                    }
+                    $messages[] = ['role' => 'user', 'content' => $message];
+
+                    $params = [
+                        'model' => $model,
+                        'messages' => $messages,
+                        'max_tokens' => (int) ($settings['max_tokens'] ?? 2000),
+                        'stream' => true,
+                    ];
+
+                    if (!$isReasoner) {
+                        $params['temperature'] = (float) ($settings['temperature'] ?? 0.7);
+                    }
+
+                    $state = new \stdClass();
+                    $state->fullContent = '';
+                    $state->tokensInput = 0;
+                    $state->tokensOutput = 0;
+                    $state->buffer = '';
+
+                    // Debug: log all raw chunks
+                    $state->rawChunks = [];
+                    $state->parsedEvents = [];
+                    $state->failedJsons = [];
+
+                    $ch = curl_init('https://api.deepseek.com/chat/completions');
+                    curl_setopt_array($ch, [
+                        CURLOPT_POST => true,
+                        CURLOPT_POSTFIELDS => json_encode($params),
+                        CURLOPT_HTTPHEADER => [
+                            'Authorization: Bearer ' . $apiKey,
+                            'Content-Type: application/json',
+                            'Accept: text/event-stream',
+                        ],
+                        CURLOPT_RETURNTRANSFER => false,
+                        CURLOPT_TIMEOUT => 300,
+                        CURLOPT_CONNECTTIMEOUT => 30,
+                        CURLOPT_WRITEFUNCTION => function($ch, $data) use ($state) {
+                            // Log raw chunk
+                            $state->rawChunks[] = $data;
+                            $state->buffer .= $data;
+
+                            while (($pos = strpos($state->buffer, "\n")) !== false) {
+                                $line = substr($state->buffer, 0, $pos);
+                                $state->buffer = substr($state->buffer, $pos + 1);
+                                $line = trim($line);
+
+                                if (empty($line) || $line === 'data: [DONE]') continue;
+
+                                if (str_starts_with($line, 'data: ')) {
+                                    $jsonStr = substr($line, 6);
+                                    $event = json_decode($jsonStr, true);
+
+                                    if (!$event) {
+                                        // Log failed JSON decode
+                                        $state->failedJsons[] = $jsonStr;
+                                        continue;
+                                    }
+
+                                    // Log parsed event
+                                    $state->parsedEvents[] = $event;
+
+                                    // Handle content delta
+                                    if (isset($event['choices'][0]['delta']['content'])) {
+                                        $delta = $event['choices'][0]['delta']['content'];
+                                        if ($delta !== null && $delta !== '') {
+                                            $state->fullContent .= $delta;
+                                            // Single echo with complete SSE event format
+                                            $sseData = "event: content\ndata: " . json_encode(['text' => $delta], JSON_UNESCAPED_UNICODE) . "\n\n";
+                                            echo $sseData;
+                                            if (ob_get_level() > 0) {
+                                                ob_flush();
+                                            }
+                                            flush();
+                                        }
+                                    }
+
+                                    // Handle reasoning content (for deepseek-reasoner) - not displayed but could be logged
+                                    if (isset($event['choices'][0]['delta']['reasoning_content'])) {
+                                        // Reasoning content is internal thinking, not shown to user
+                                    }
+
+                                    // Handle usage info
+                                    if (isset($event['usage'])) {
+                                        $state->tokensInput = $event['usage']['prompt_tokens'] ?? 0;
+                                        $state->tokensOutput = $event['usage']['completion_tokens'] ?? 0;
+                                    }
+                                }
+                            }
+                            return strlen($data);
+                        },
+                    ]);
+
+                    curl_exec($ch);
+                    $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+                    $curlError = curl_error($ch);
+                    curl_close($ch);
+
+                    // Process any remaining data in buffer
+                    if (!empty($state->buffer)) {
+                        $remainingLines = explode("\n", $state->buffer);
+                        foreach ($remainingLines as $line) {
+                            $line = trim($line);
+                            if (empty($line) || $line === 'data: [DONE]') continue;
+
+                            if (str_starts_with($line, 'data: ')) {
+                                $jsonStr = substr($line, 6);
+                                $event = json_decode($jsonStr, true);
+
+                                if ($event && isset($event['choices'][0]['delta']['content'])) {
+                                    $delta = $event['choices'][0]['delta']['content'];
+                                    if ($delta !== null && $delta !== '') {
+                                        $state->fullContent .= $delta;
+                                        $sseData = "event: content\ndata: " . json_encode(['text' => $delta], JSON_UNESCAPED_UNICODE) . "\n\n";
+                                        echo $sseData;
+                                        flush();
+                                    }
+                                }
+
+                                if ($event && isset($event['usage'])) {
+                                    $state->tokensInput = $event['usage']['prompt_tokens'] ?? $state->tokensInput;
+                                    $state->tokensOutput = $event['usage']['completion_tokens'] ?? $state->tokensOutput;
+                                }
+                            }
+                        }
+                    }
+
+                    $fullContent = $state->fullContent;
+                    $tokensInput = $state->tokensInput;
+                    $tokensOutput = $state->tokensOutput;
+
+                    // Detailed debug logging
+                    Log::info('DeepSeek streaming DEBUG', [
+                        'http_code' => $httpCode,
+                        'content_length' => strlen($fullContent),
+                        'tokens_in' => $tokensInput,
+                        'tokens_out' => $tokensOutput,
+                        'raw_chunks_count' => count($state->rawChunks),
+                        'parsed_events_count' => count($state->parsedEvents),
+                        'failed_jsons_count' => count($state->failedJsons),
+                        'failed_jsons' => array_slice($state->failedJsons, 0, 5), // First 5 failures
+                        'full_content_preview' => mb_substr($fullContent, 0, 500),
+                        'remaining_buffer' => $state->buffer,
+                    ]);
+
+                    // Log content deltas for analysis
+                    $contentDeltas = [];
+                    foreach ($state->parsedEvents as $event) {
+                        if (isset($event['choices'][0]['delta']['content'])) {
+                            $contentDeltas[] = $event['choices'][0]['delta']['content'];
+                        }
+                    }
+                    Log::info('DeepSeek content deltas', [
+                        'total_deltas' => count($contentDeltas),
+                        'deltas_preview' => array_slice($contentDeltas, 0, 50), // First 50 deltas
+                    ]);
+
+                    if ($httpCode !== 200) {
+                        throw new \Exception("DeepSeek API error: HTTP $httpCode - $curlError");
+                    }
+                } elseif ($usesResponsesApi) {
                     // Use Responses API with direct cURL streaming for real-time output
                     $apiKey = config('openai.api_key');
 
@@ -561,6 +803,7 @@ class AdminConversationController extends Controller
                 $assistantMessage = Message::create([
                     'user_id' => null,
                     'conversation_id' => $conversation->id,
+                    'provider' => $provider,
                     'role' => 'assistant',
                     'content' => $fullContent,
                     'tokens_input' => $tokensInput,
@@ -569,6 +812,15 @@ class AdminConversationController extends Controller
 
                 // Update stats
                 $conversation->updateTokenStats($tokensInput, $tokensOutput);
+
+                // Record admin token usage
+                $this->tokenService->recordAdminUsage(
+                    $admin->id,
+                    $tokensInput,
+                    $tokensOutput,
+                    $provider,
+                    $assistant->id
+                );
 
                 if ($isFirstMessage) {
                     $title = Str::limit($message, 50, '...');

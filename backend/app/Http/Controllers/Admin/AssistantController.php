@@ -9,6 +9,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 use OpenAI\Laravel\Facades\OpenAI;
 
@@ -335,12 +336,24 @@ class AssistantController extends Controller
             ], 500);
         }
 
+        $isReasoner = str_contains($assistant->model, 'reasoner');
+
         $params = [
             'model' => $assistant->model,
             'messages' => $messages,
             'max_tokens' => (int) ($settings['max_tokens'] ?? 2000),
-            'temperature' => (float) ($settings['temperature'] ?? 0.7),
         ];
+
+        // Reasoner model doesn't support temperature/top_p customization
+        if (!$isReasoner) {
+            $params['temperature'] = (float) ($settings['temperature'] ?? 0.7);
+        }
+
+        Log::info('DeepSeek test request', [
+            'model' => $assistant->model,
+            'params' => array_keys($params),
+            'max_tokens' => $params['max_tokens'] ?? 'not set',
+        ]);
 
         $response = Http::withHeaders([
             'Authorization' => 'Bearer ' . $apiKey,
@@ -348,9 +361,18 @@ class AssistantController extends Controller
         ])->timeout(120)->post('https://api.deepseek.com/chat/completions', $params);
 
         if (!$response->successful()) {
+            Log::error('DeepSeek test API error', [
+                'status' => $response->status(),
+                'body' => $response->body(),
+                'model' => $assistant->model,
+            ]);
+
+            $errorBody = $response->json();
+            $errorMessage = $errorBody['error']['message'] ?? $errorBody['message'] ?? $response->body();
+
             return response()->json([
                 'success' => false,
-                'message' => 'DeepSeek API error: ' . $response->body(),
+                'message' => 'DeepSeek API error (HTTP ' . $response->status() . '): ' . $errorMessage,
             ], 500);
         }
 
