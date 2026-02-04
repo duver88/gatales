@@ -2,20 +2,29 @@ import { defineStore } from 'pinia'
 import { ref, computed, nextTick } from 'vue'
 import { chatApi } from '../services/api'
 import { useAuthStore } from './auth'
+import { useConversationsStore } from './conversations'
 
-// Model pricing per million tokens
+// Model pricing per million tokens (synced with backend TokenService)
 const MODEL_PRICING = {
-  'gpt-5.2': { input: 1.25, output: 10.00 },
-  'gpt-5.2-mini': { input: 0.25, output: 2.00 },
-  'gpt-5.2-codex': { input: 1.50, output: 12.00 },
-  'gpt-5.1': { input: 1.25, output: 10.00 },
-  'gpt-5.1-mini': { input: 0.25, output: 2.00 },
-  'gpt-5': { input: 1.25, output: 10.00 },
-  'gpt-5-mini': { input: 0.25, output: 2.00 },
+  // OpenAI models
+  'gpt-5.2': { input: 5.00, output: 15.00 },
+  'gpt-5.2-mini': { input: 0.30, output: 1.20 },
+  'gpt-5.2-codex': { input: 3.00, output: 12.00 },
+  'gpt-5.1': { input: 4.00, output: 12.00 },
+  'gpt-5.1-mini': { input: 0.25, output: 1.00 },
+  'gpt-5.1-codex': { input: 2.50, output: 10.00 },
+  'gpt-5': { input: 3.00, output: 10.00 },
+  'gpt-5-mini': { input: 0.20, output: 0.80 },
   'gpt-4o': { input: 2.50, output: 10.00 },
   'gpt-4o-mini': { input: 0.15, output: 0.60 },
+  'gpt-4-turbo': { input: 10.00, output: 30.00 },
+  'gpt-4': { input: 30.00, output: 60.00 },
+  'gpt-3.5-turbo': { input: 0.50, output: 1.50 },
   'o1': { input: 15.00, output: 60.00 },
   'o1-mini': { input: 3.00, output: 12.00 },
+  // DeepSeek models
+  'deepseek-chat': { input: 0.14, output: 0.28 },
+  'deepseek-reasoner': { input: 0.55, output: 2.19 },
 }
 
 function calculateCost(model, inputTokens, outputTokens) {
@@ -23,6 +32,12 @@ function calculateCost(model, inputTokens, outputTokens) {
   const inputCost = (inputTokens / 1000000) * pricing.input
   const outputCost = (outputTokens / 1000000) * pricing.output
   return inputCost + outputCost
+}
+
+// Unique ID generator to prevent collisions
+let idCounter = 0
+function generateTempId(prefix = 'temp') {
+  return `${prefix}_${Date.now()}_${++idCounter}_${Math.random().toString(36).substr(2, 9)}`
 }
 
 export const useChatStore = defineStore('chat', () => {
@@ -150,6 +165,10 @@ export const useChatStore = defineStore('chat', () => {
   const isStreaming = ref(false)
   const isThinking = ref(false) // Shows "thinking" before streaming starts
 
+  // Track last user message for retry functionality
+  const lastUserMessageContent = ref('')
+  const lastFailedMessageId = ref(null)
+
   // Token usage tracking for last message
   const lastMessageTokens = ref({
     input: 0,
@@ -167,15 +186,53 @@ export const useChatStore = defineStore('chat', () => {
       isStreaming.value = false
       isThinking.value = false
       isSending.value = false
-      // Mark the streaming message as complete (keep partial content)
+      // Mark the streaming message as stopped (user can regenerate)
       const streamingMsg = messages.value.find(m => m.isStreaming)
       if (streamingMsg) {
         streamingMsg.isStreaming = false
         streamingMsg.isThinking = false
-        streamingMsg.content = streamingContent.value || '(Respuesta cancelada)'
+        streamingMsg.isStopped = true
+        streamingMsg.content = streamingContent.value || ''
+        lastFailedMessageId.value = streamingMsg.id
       }
     }
     return stopped
+  }
+
+  /**
+   * Retry/regenerate the last failed or stopped response
+   */
+  async function retryLastMessage() {
+    if (!lastUserMessageContent.value || isSending.value) return
+
+    // Find and remove the failed assistant message
+    const failedMsgIndex = messages.value.findIndex(m =>
+      m.isFailed || m.isStopped || m.id === lastFailedMessageId.value
+    )
+    if (failedMsgIndex !== -1) {
+      messages.value.splice(failedMsgIndex, 1)
+    }
+
+    // Also remove the corresponding user message (it will be re-added by sendMessageStream)
+    const lastUserMsgIndex = messages.value.length - 1
+    if (lastUserMsgIndex >= 0 && messages.value[lastUserMsgIndex].role === 'user') {
+      messages.value.splice(lastUserMsgIndex, 1)
+    }
+
+    // Clear error state
+    error.value = null
+    lastFailedMessageId.value = null
+
+    // Resend the message
+    return sendMessageStream(lastUserMessageContent.value, currentConversationId.value)
+  }
+
+  /**
+   * Check if there's a failed message that can be retried
+   */
+  function canRetry() {
+    return lastFailedMessageId.value !== null ||
+           messages.value.some(m => m.isFailed || m.isStopped)
   }
 
   async function sendMessage(content, conversationId = null) {
@@ -189,7 +246,7 @@ export const useChatStore = defineStore('chat', () => {
 
     // Add user message immediately for better UX
     const userMessage = {
-      id: Date.now(),
+      id: generateTempId('user'),
       role: 'user',
       content: content.trim(),
       created_at: new Date().toISOString(),
@@ -263,10 +320,14 @@ export const useChatStore = defineStore('chat', () => {
     error.value = null
     tokensExhausted.value = false
     freePlanBlocked.value = false
+    lastFailedMessageId.value = null
+
+    // Store for retry
+    lastUserMessageContent.value = content.trim()
 
     // Add user message immediately
     const userMessage = {
-      id: Date.now(),
+      id: generateTempId('user'),
       role: 'user',
       content: content.trim(),
       created_at: new Date().toISOString(),
@@ -274,7 +335,7 @@ export const useChatStore = defineStore('chat', () => {
     messages.value.push(userMessage)
 
     // Add placeholder for streaming assistant message
-    const assistantMessageId = Date.now() + 1
+    const assistantMessageId = generateTempId('assistant')
     const assistantMessage = {
       id: assistantMessageId,
       role: 'assistant',
@@ -301,16 +362,19 @@ export const useChatStore = defineStore('chat', () => {
           if (isThinking.value) {
             isThinking.value = false
             isStreaming.value = true
-            const msgIndex = messages.value.findIndex(m => m.id === assistantMessageId)
-            if (msgIndex !== -1) {
-              messages.value[msgIndex].isThinking = false
-            }
           }
+
           streamingContent.value += chunk
-          // Update the assistant message in place
+
+          // Update the assistant message - replace entire object to force Vue reactivity
           const msgIndex = messages.value.findIndex(m => m.id === assistantMessageId)
           if (msgIndex !== -1) {
-            messages.value[msgIndex].content = streamingContent.value
+            messages.value[msgIndex] = {
+              ...messages.value[msgIndex],
+              content: streamingContent.value,
+              isThinking: false,
+              isStreaming: true,
+            }
           }
         },
         // onDone
@@ -330,6 +394,13 @@ export const useChatStore = defineStore('chat', () => {
           // Update conversation info
           if (data.conversation) {
             currentConversation.value = data.conversation
+            // Also update in conversations store (for sidebar)
+            const conversationsStore = useConversationsStore()
+            conversationsStore.updateConversationLocally(data.conversation.id, {
+              title: data.conversation.title,
+              message_count: (currentConversation.value.message_count || 0) + 1,
+              last_message_at: new Date().toISOString(),
+            })
           }
 
           // Update token usage tracking
@@ -355,21 +426,34 @@ export const useChatStore = defineStore('chat', () => {
           isStreaming.value = false
           isSending.value = false
 
-          // Remove messages on error
-          messages.value = messages.value.filter(m =>
-            m.id !== userMessage.id && m.id !== assistantMessageId
-          )
-
           const errorMsg = errorData.message || 'Error al enviar el mensaje'
 
+          // For free_plan and tokens_exhausted, remove messages (user needs to upgrade)
           if (errorMsg === 'free_plan') {
             freePlanBlocked.value = true
             error.value = 'Plan gratuito no permite chat'
+            messages.value = messages.value.filter(m =>
+              m.id !== userMessage.id && m.id !== assistantMessageId
+            )
           } else if (errorMsg === 'tokens_exhausted') {
             tokensExhausted.value = true
             error.value = 'Tokens agotados'
+            messages.value = messages.value.filter(m =>
+              m.id !== userMessage.id && m.id !== assistantMessageId
+            )
           } else {
+            // For other errors, keep messages but mark assistant message as failed
             error.value = errorMsg
+            const msgIndex = messages.value.findIndex(m => m.id === assistantMessageId)
+            if (msgIndex !== -1) {
+              messages.value[msgIndex].isStreaming = false
+              messages.value[msgIndex].isThinking = false
+              messages.value[msgIndex].isFailed = true
+              messages.value[msgIndex].errorMessage = errorMsg
+              messages.value[msgIndex].content = streamingContent.value || ''
+            }
+            // Store the failed message ID for retry
+            lastFailedMessageId.value = assistantMessageId
           }
 
           reject(new Error(errorMsg))
@@ -440,6 +524,8 @@ export const useChatStore = defineStore('chat', () => {
     streamingContent,
     isStreaming,
     isThinking,
+    // Retry state
+    lastFailedMessageId,
     // Token usage
     lastMessageTokens,
     // Assistant state
@@ -454,6 +540,8 @@ export const useChatStore = defineStore('chat', () => {
     sendMessage,
     sendMessageStream,
     stopStreaming,
+    retryLastMessage,
+    canRetry,
     clearHistory,
     clearError,
     fetchAvailableAssistants,

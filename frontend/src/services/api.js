@@ -142,6 +142,7 @@ export const chatApi = {
       const reader = response.body.getReader()
       const decoder = new TextDecoder()
       let buffer = ''
+      let currentEvent = null  // Persist across chunks to handle split events
 
       while (true) {
         const { done, value } = await reader.read()
@@ -153,8 +154,10 @@ export const chatApi = {
         const lines = buffer.split('\n')
         buffer = lines.pop() || '' // Keep incomplete line in buffer
 
-        let currentEvent = null
         for (const line of lines) {
+          // Skip empty lines and SSE comments
+          if (!line || line.startsWith(':')) continue
+
           if (line.startsWith('event: ')) {
             currentEvent = line.slice(7).trim()
           } else if (line.startsWith('data: ') && currentEvent) {
@@ -162,7 +165,10 @@ export const chatApi = {
               const data = JSON.parse(line.slice(6))
 
               if (currentEvent === 'content') {
-                onChunk(data.text)
+                // Ensure text exists and is not empty before calling onChunk
+                if (data.text != null && data.text !== '') {
+                  onChunk(data.text)
+                }
               } else if (currentEvent === 'done') {
                 receivedDone = true
                 onDone(data)
@@ -173,7 +179,39 @@ export const chatApi = {
                 // Optional: handle start event
               }
             } catch (e) {
-              console.error('Error parsing SSE data:', e)
+              console.error('Error parsing SSE data:', e, 'Line:', line)
+            }
+            currentEvent = null
+          }
+        }
+      }
+
+      // Flush any remaining bytes from decoder
+      const remaining = decoder.decode()
+      if (remaining) {
+        buffer += remaining
+      }
+
+      // Process any remaining complete lines in buffer
+      if (buffer.trim()) {
+        const finalLines = buffer.split('\n')
+        for (const line of finalLines) {
+          if (line.startsWith('event: ')) {
+            currentEvent = line.slice(7).trim()
+          } else if (line.startsWith('data: ') && currentEvent) {
+            try {
+              const data = JSON.parse(line.slice(6))
+              if (currentEvent === 'content' && data.text != null && data.text !== '') {
+                onChunk(data.text)
+              } else if (currentEvent === 'done') {
+                receivedDone = true
+                onDone(data)
+              } else if (currentEvent === 'error') {
+                receivedDone = true
+                onError(data)
+              }
+            } catch (e) {
+              // Final buffer might be incomplete, ignore parse errors
             }
             currentEvent = null
           }
@@ -277,6 +315,13 @@ export const adminApi = {
   deleteTestConversation: (id) => api.delete(`/admin/test-conversations/${id}`),
   clearAllTestConversations: (assistantId) => api.delete('/admin/test-conversations/clear-all', { params: { assistant_id: assistantId } }),
 
+  // Email Logs (monitoring)
+  getEmailStats: () => api.get('/admin/emails/stats'),
+  getBouncedEmails: () => api.get('/admin/emails/bounced'),
+  getEmailLogs: (params) => api.get('/admin/emails', { params }),
+  getEmailLog: (id) => api.get(`/admin/emails/${id}`),
+  resendEmail: (id) => api.post(`/admin/emails/${id}/resend`),
+
   // Streaming message for admin test (SSE)
   sendTestConversationMessageStream: async (id, message, onChunk, onDone, onError) => {
     const token = localStorage.getItem('admin_token')
@@ -319,12 +364,50 @@ export const adminApi = {
         buffer = lines.pop() || ''
 
         for (const line of lines) {
+          // Skip empty lines and SSE comments
+          if (!line || line.startsWith(':')) continue
+
           if (line.startsWith('event: ')) {
             currentEvent = line.slice(7).trim()
           } else if (line.startsWith('data: ') && currentEvent) {
             try {
               const data = JSON.parse(line.slice(6))
               if (currentEvent === 'content') {
+                // Ensure text exists and is not empty before calling onChunk
+                if (data.text != null && data.text !== '') {
+                  onChunk(data.text)
+                }
+              } else if (currentEvent === 'done') {
+                receivedDone = true
+                onDone(data)
+              } else if (currentEvent === 'error') {
+                receivedDone = true
+                onError(data)
+              }
+            } catch (e) {
+              console.error('Error parsing SSE:', e, 'Line:', line)
+            }
+            currentEvent = null
+          }
+        }
+      }
+
+      // Flush any remaining bytes from decoder
+      const remaining = decoder.decode()
+      if (remaining) {
+        buffer += remaining
+      }
+
+      // Process any remaining complete lines in buffer
+      if (buffer.trim()) {
+        const finalLines = buffer.split('\n')
+        for (const line of finalLines) {
+          if (line.startsWith('event: ')) {
+            currentEvent = line.slice(7).trim()
+          } else if (line.startsWith('data: ') && currentEvent) {
+            try {
+              const data = JSON.parse(line.slice(6))
+              if (currentEvent === 'content' && data.text != null && data.text !== '') {
                 onChunk(data.text)
               } else if (currentEvent === 'done') {
                 receivedDone = true
@@ -334,7 +417,7 @@ export const adminApi = {
                 onError(data)
               }
             } catch (e) {
-              console.error('Error parsing SSE:', e)
+              // Final buffer might be incomplete, ignore parse errors
             }
             currentEvent = null
           }

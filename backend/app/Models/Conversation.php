@@ -13,8 +13,8 @@ class Conversation extends Model
 {
     use HasFactory, SoftDeletes;
 
-    // Eager load assistant by default to prevent N+1 queries
-    protected $with = ['assistant'];
+    // Note: Removed automatic eager loading of assistant to improve performance
+    // Controllers should explicitly use ->with('assistant') when needed
 
     protected $fillable = [
         'user_id',
@@ -112,14 +112,27 @@ class Conversation extends Model
     }
 
     /**
-     * Generate title from first user message
+     * Generate title from first user message (race-condition safe)
+     * Only updates if title is currently null to prevent concurrent overwrites
      */
     public function generateTitle(): void
     {
+        // Skip if title already exists (prevents race condition)
+        if ($this->title !== null) {
+            return;
+        }
+
         $firstMessage = $this->messages()->where('role', 'user')->first();
         if ($firstMessage) {
             $title = Str::limit($firstMessage->content, 50, '...');
-            $this->update(['title' => $title]);
+
+            // Atomic update: only set title if still null (race-condition safe)
+            static::where('id', $this->id)
+                ->whereNull('title')
+                ->update(['title' => $title]);
+
+            // Update local model
+            $this->title = $title;
         }
     }
 
@@ -167,21 +180,43 @@ class Conversation extends Model
 
     /**
      * Get preview text (first 100 chars of first message)
+     * Uses title if available to avoid N+1 query
      */
     public function getPreviewAttribute(): string
     {
-        $firstMessage = $this->messages()->where('role', 'user')->first();
-        if ($firstMessage) {
-            return Str::limit($firstMessage->content, 100, '...');
+        // Use title if available (already stored)
+        if ($this->title) {
+            return $this->title;
         }
+
+        // Check if messages are already loaded to avoid N+1
+        if ($this->relationLoaded('messages')) {
+            $firstMessage = $this->messages->where('role', 'user')->first();
+            if ($firstMessage) {
+                return Str::limit($firstMessage->content, 100, '...');
+            }
+        }
+
         return '';
     }
 
     /**
      * Get message count
+     * Uses messages_count if available (from withCount) to avoid N+1
      */
     public function getMessageCountAttribute(): int
     {
+        // Use eager-loaded count if available
+        if (isset($this->attributes['messages_count'])) {
+            return (int) $this->attributes['messages_count'];
+        }
+
+        // Check if messages are already loaded
+        if ($this->relationLoaded('messages')) {
+            return $this->messages->count();
+        }
+
+        // Fallback to query (should be avoided in loops)
         return $this->messages()->count();
     }
 }

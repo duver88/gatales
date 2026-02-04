@@ -5,9 +5,13 @@ namespace App\Services;
 use App\Models\AdminTokenUsage;
 use App\Models\TokenUsage;
 use App\Models\User;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 
 class TokenService
 {
+    // Cache duration for dashboard stats (5 minutes)
+    private const DASHBOARD_CACHE_TTL = 300;
     /**
      * Check if user has enough tokens
      */
@@ -17,17 +21,20 @@ class TokenService
     }
 
     /**
-     * Deduct tokens from user and record usage
+     * Deduct tokens from user and record usage (atomic transaction)
      */
     public function deductTokens(User $user, int $tokensInput, int $tokensOutput, string $provider = 'openai'): void
     {
         $totalTokens = $tokensInput + $tokensOutput;
 
-        // Deduct from user balance
-        $user->deductTokens($totalTokens);
+        // Wrap in transaction to ensure both operations succeed or fail together
+        DB::transaction(function () use ($user, $totalTokens, $tokensInput, $tokensOutput, $provider) {
+            // Deduct from user balance
+            $user->deductTokens($totalTokens);
 
-        // Record usage for statistics with provider
-        TokenUsage::record($user->id, $tokensInput, $tokensOutput, $provider);
+            // Record usage for statistics with provider
+            TokenUsage::record($user->id, $tokensInput, $tokensOutput, $provider);
+        });
     }
 
     /**
@@ -64,10 +71,11 @@ class TokenService
     }
 
     /**
-     * Get token usage statistics for a user
+     * Get token usage statistics for a user - separated by provider
      */
     public function getUserStats(User $user, int $days = 30): array
     {
+        // Get daily usage grouped by date and provider
         $usage = TokenUsage::where('user_id', $user->id)
             ->where('date', '>=', now()->subDays($days))
             ->selectRaw('date, provider, SUM(tokens_input) as input, SUM(tokens_output) as output')
@@ -75,46 +83,100 @@ class TokenService
             ->orderBy('date')
             ->get();
 
-        $totalInput = 0;
-        $totalOutput = 0;
+        // Initialize provider totals for period
+        $providerTotals = [
+            'openai' => ['input' => 0, 'output' => 0, 'total' => 0, 'cost' => 0],
+            'deepseek' => ['input' => 0, 'output' => 0, 'total' => 0, 'cost' => 0],
+        ];
 
-        $daily = $usage->map(function ($item) use (&$totalInput, &$totalOutput) {
+        // Group daily data by date with provider breakdown
+        $dailyByDate = [];
+        foreach ($usage as $item) {
+            $date = $item->date->format('Y-m-d');
+            $provider = $item->provider ?? 'openai';
             $input = (int) $item->input;
             $output = (int) $item->output;
-            $totalInput += $input;
-            $totalOutput += $output;
+            $total = $input + $output;
+            $cost = $this->calculateCost($input, $output, null, $provider);
 
-            return [
-                'date' => $item->date->format('Y-m-d'),
-                'provider' => $item->provider,
-                'tokens_input' => $input,
-                'tokens_output' => $output,
-                'total' => $input + $output,
-                'estimated_cost' => $this->calculateCost($input, $output, null, $item->provider),
+            if (!isset($dailyByDate[$date])) {
+                $dailyByDate[$date] = [
+                    'date' => $date,
+                    'openai' => ['input' => 0, 'output' => 0, 'total' => 0, 'cost' => 0],
+                    'deepseek' => ['input' => 0, 'output' => 0, 'total' => 0, 'cost' => 0],
+                    'total' => 0,
+                    'total_cost' => 0,
+                ];
+            }
+
+            $dailyByDate[$date][$provider] = [
+                'input' => $input,
+                'output' => $output,
+                'total' => $total,
+                'cost' => $cost,
             ];
-        })->toArray();
+            $dailyByDate[$date]['total'] += $total;
+            $dailyByDate[$date]['total_cost'] += $cost;
 
-        // All-time totals for this user
-        $allTime = TokenUsage::where('user_id', $user->id)
-            ->selectRaw('COALESCE(SUM(tokens_input), 0) as input, COALESCE(SUM(tokens_output), 0) as output')
-            ->first();
+            // Accumulate provider totals
+            $providerTotals[$provider]['input'] += $input;
+            $providerTotals[$provider]['output'] += $output;
+            $providerTotals[$provider]['total'] += $total;
+            $providerTotals[$provider]['cost'] += $cost;
+        }
 
-        $allTimeInput = (int) $allTime->input;
-        $allTimeOutput = (int) $allTime->output;
+        // Round costs
+        foreach ($providerTotals as $provider => $data) {
+            $providerTotals[$provider]['cost'] = round($data['cost'], 4);
+        }
+        foreach ($dailyByDate as $date => $data) {
+            $dailyByDate[$date]['total_cost'] = round($data['total_cost'], 4);
+        }
+
+        // All-time totals by provider for this user
+        $allTimeByProvider = TokenUsage::where('user_id', $user->id)
+            ->selectRaw('provider, COALESCE(SUM(tokens_input), 0) as input, COALESCE(SUM(tokens_output), 0) as output')
+            ->groupBy('provider')
+            ->get()
+            ->keyBy('provider');
+
+        $allTimeTotals = [
+            'openai' => ['input' => 0, 'output' => 0, 'total' => 0, 'cost' => 0],
+            'deepseek' => ['input' => 0, 'output' => 0, 'total' => 0, 'cost' => 0],
+        ];
+        $allTimeTotal = 0;
+        $allTimeTotalCost = 0;
+
+        foreach (['openai', 'deepseek'] as $provider) {
+            $data = $allTimeByProvider->get($provider);
+            $input = (int) ($data->input ?? 0);
+            $output = (int) ($data->output ?? 0);
+            $total = $input + $output;
+            $cost = $this->calculateCost($input, $output, null, $provider);
+
+            $allTimeTotals[$provider] = [
+                'input' => $input,
+                'output' => $output,
+                'total' => $total,
+                'cost' => round($cost, 4),
+            ];
+            $allTimeTotal += $total;
+            $allTimeTotalCost += $cost;
+        }
 
         return [
-            'daily' => $daily,
+            'daily' => array_values($dailyByDate),
             'period_totals' => [
-                'tokens_input' => $totalInput,
-                'tokens_output' => $totalOutput,
-                'total' => $totalInput + $totalOutput,
-                'estimated_cost' => $this->calculateCost($totalInput, $totalOutput),
+                'openai' => $providerTotals['openai'],
+                'deepseek' => $providerTotals['deepseek'],
+                'total' => $providerTotals['openai']['total'] + $providerTotals['deepseek']['total'],
+                'total_cost' => round($providerTotals['openai']['cost'] + $providerTotals['deepseek']['cost'], 4),
             ],
             'all_time_totals' => [
-                'tokens_input' => $allTimeInput,
-                'tokens_output' => $allTimeOutput,
-                'total' => $allTimeInput + $allTimeOutput,
-                'estimated_cost' => $this->calculateCost($allTimeInput, $allTimeOutput),
+                'openai' => $allTimeTotals['openai'],
+                'deepseek' => $allTimeTotals['deepseek'],
+                'total' => $allTimeTotal,
+                'total_cost' => round($allTimeTotalCost, 4),
             ],
         ];
     }
@@ -229,8 +291,19 @@ class TokenService
 
     /**
      * Get usage statistics by provider (for admin dashboard)
+     * Cached for 5 minutes to reduce DB load with 2000+ users
      */
     public function getUsageByProvider(): array
+    {
+        return Cache::remember('dashboard_usage_by_provider', self::DASHBOARD_CACHE_TTL, function () {
+            return $this->fetchUsageByProvider();
+        });
+    }
+
+    /**
+     * Fetch usage by provider from database (internal)
+     */
+    private function fetchUsageByProvider(): array
     {
         // Today's usage by provider
         $todayByProvider = TokenUsage::where('date', now()->toDateString())
@@ -295,8 +368,19 @@ class TokenService
 
     /**
      * Get admin usage statistics (for admin dashboard)
+     * Cached for 5 minutes to reduce DB load
      */
     public function getAdminUsageStats(): array
+    {
+        return Cache::remember('dashboard_admin_usage_stats', self::DASHBOARD_CACHE_TTL, function () {
+            return $this->fetchAdminUsageStats();
+        });
+    }
+
+    /**
+     * Fetch admin usage stats from database (internal)
+     */
+    private function fetchAdminUsageStats(): array
     {
         // Today's admin usage
         $todayUsage = AdminTokenUsage::where('date', now()->toDateString())
@@ -415,29 +499,59 @@ class TokenService
 
     /**
      * Get usage breakdown by user (for admin dashboard)
+     * Optimized for large user bases (2000+ users)
+     * Cached for 5 minutes
      */
     public function getUsersUsageBreakdown(): array
     {
-        // Get all users with their monthly usage by provider
+        return Cache::remember('dashboard_users_breakdown', self::DASHBOARD_CACHE_TTL, function () {
+            return $this->fetchUsersUsageBreakdown();
+        });
+    }
+
+    /**
+     * Fetch users usage breakdown from database (internal)
+     */
+    private function fetchUsersUsageBreakdown(): array
+    {
+        // Step 1: Get top 20 user IDs by total consumption (efficient - single aggregation)
+        $topUserIds = TokenUsage::whereMonth('date', now()->month)
+            ->whereYear('date', now()->year)
+            ->selectRaw('user_id, SUM(tokens_input + tokens_output) as total')
+            ->groupBy('user_id')
+            ->orderByDesc('total')
+            ->limit(20)
+            ->pluck('user_id')
+            ->toArray();
+
+        if (empty($topUserIds)) {
+            return [];
+        }
+
+        // Step 2: Get detailed breakdown ONLY for top 20 users (much less data)
         $usage = TokenUsage::whereMonth('date', now()->month)
             ->whereYear('date', now()->year)
+            ->whereIn('user_id', $topUserIds)
             ->selectRaw('user_id, provider, SUM(tokens_input) as input, SUM(tokens_output) as output')
             ->groupBy('user_id', 'provider')
             ->get();
 
+        // Step 3: Get user info for top 20 only
+        $users = User::whereIn('id', $topUserIds)->get()->keyBy('id');
+
+        // Build stats array
         $userStats = [];
+        foreach ($topUserIds as $userId) {
+            $userStats[$userId] = [
+                'openai' => ['input' => 0, 'output' => 0, 'total' => 0, 'cost' => 0],
+                'deepseek' => ['input' => 0, 'output' => 0, 'total' => 0, 'cost' => 0],
+                'total' => 0,
+                'total_cost' => 0,
+            ];
+        }
 
         foreach ($usage as $item) {
             $userId = $item->user_id;
-            if (!isset($userStats[$userId])) {
-                $userStats[$userId] = [
-                    'openai' => ['input' => 0, 'output' => 0, 'total' => 0, 'cost' => 0],
-                    'deepseek' => ['input' => 0, 'output' => 0, 'total' => 0, 'cost' => 0],
-                    'total' => 0,
-                    'total_cost' => 0,
-                ];
-            }
-
             $input = (int) $item->input;
             $output = (int) $item->output;
             $total = $input + $output;
@@ -453,13 +567,11 @@ class TokenService
             $userStats[$userId]['total_cost'] += $cost;
         }
 
-        // Get user info
-        $userIds = array_keys($userStats);
-        $users = User::whereIn('id', $userIds)->get()->keyBy('id');
-
+        // Build result maintaining order from SQL
         $result = [];
-        foreach ($userStats as $userId => $stats) {
+        foreach ($topUserIds as $userId) {
             $user = $users->get($userId);
+            $stats = $userStats[$userId];
             $result[] = [
                 'user_id' => $userId,
                 'name' => $user->name ?? 'Usuario eliminado',
@@ -471,10 +583,7 @@ class TokenService
             ];
         }
 
-        // Sort by total usage descending
-        usort($result, fn($a, $b) => $b['total'] - $a['total']);
-
-        return array_slice($result, 0, 20); // Top 20 users
+        return $result;
     }
 
     /**

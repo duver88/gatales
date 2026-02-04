@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Models\Assistant;
+use App\Models\Conversation;
 use App\Models\Message;
 use App\Models\Plan;
 use App\Models\Subscription;
@@ -123,20 +124,28 @@ class UserController extends Controller
     {
         $user->load(['activeSubscription.plan', 'subscriptions.plan', 'assistant']);
 
-        // Get recent messages (last 50)
-        $recentMessages = Message::where('user_id', $user->id)
-            ->orderBy('created_at', 'desc')
+        // Get user's conversations with token stats
+        $conversations = Conversation::where('user_id', $user->id)
+            ->where('type', 'user_chat')
+            ->withCount('messages')
+            ->orderBy('last_message_at', 'desc')
             ->limit(50)
             ->get()
-            ->reverse()
-            ->values()
-            ->map(function ($message) {
+            ->map(function ($conv) {
+                $cost = $this->tokenService->calculateCost(
+                    $conv->total_tokens_input,
+                    $conv->total_tokens_output
+                );
                 return [
-                    'id' => $message->id,
-                    'role' => $message->role,
-                    'content' => $message->content,
-                    'tokens_used' => $message->tokens_input + $message->tokens_output,
-                    'created_at' => $message->created_at->toIso8601String(),
+                    'id' => $conv->id,
+                    'title' => $conv->title ?? 'Sin titulo',
+                    'messages_count' => $conv->messages_count,
+                    'tokens_input' => $conv->total_tokens_input,
+                    'tokens_output' => $conv->total_tokens_output,
+                    'total_tokens' => $conv->total_tokens_input + $conv->total_tokens_output,
+                    'estimated_cost' => $cost,
+                    'created_at' => $conv->created_at->toIso8601String(),
+                    'last_message_at' => $conv->last_message_at?->toIso8601String(),
                 ];
             });
 
@@ -177,7 +186,7 @@ class UserController extends Controller
                     ];
                 }),
             ],
-            'recent_messages' => $recentMessages,
+            'conversations' => $conversations,
             'token_stats' => $tokenStats,
         ]);
     }

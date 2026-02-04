@@ -84,48 +84,6 @@ const conversationTitle = computed(() => {
   return chatStore.currentConversation?.title || 'Nueva conversacion'
 })
 
-// Token usage display
-const lastTokenInfo = computed(() => {
-  const tokens = chatStore.lastMessageTokens
-  if (!tokens.input && !tokens.output) return null
-  return {
-    input: tokens.input.toLocaleString('es-ES'),
-    output: tokens.output.toLocaleString('es-ES'),
-    cost: tokens.cost.toFixed(6)
-  }
-})
-
-const conversationTokenInfo = computed(() => {
-  const conv = chatStore.currentConversation
-  if (!conv?.total_tokens_input && !conv?.total_tokens_output) return null
-
-  // Calculate cost for conversation totals using the last model or default
-  const model = chatStore.lastMessageTokens.model || 'gpt-4o-mini'
-  const pricing = {
-    'gpt-5.2': { input: 1.25, output: 10.00 },
-    'gpt-5.2-mini': { input: 0.25, output: 2.00 },
-    'gpt-5.2-codex': { input: 1.50, output: 12.00 },
-    'gpt-5.1': { input: 1.25, output: 10.00 },
-    'gpt-5.1-mini': { input: 0.25, output: 2.00 },
-    'gpt-5': { input: 1.25, output: 10.00 },
-    'gpt-5-mini': { input: 0.25, output: 2.00 },
-    'gpt-4o': { input: 2.50, output: 10.00 },
-    'gpt-4o-mini': { input: 0.15, output: 0.60 },
-    'o1': { input: 15.00, output: 60.00 },
-    'o1-mini': { input: 3.00, output: 12.00 },
-  }
-  const modelPricing = pricing[model] || pricing['gpt-4o-mini']
-  const inputCost = ((conv.total_tokens_input || 0) / 1000000) * modelPricing.input
-  const outputCost = ((conv.total_tokens_output || 0) / 1000000) * modelPricing.output
-  const totalCost = inputCost + outputCost
-
-  return {
-    input: (conv.total_tokens_input || 0).toLocaleString('es-ES'),
-    output: (conv.total_tokens_output || 0).toLocaleString('es-ES'),
-    cost: totalCost.toFixed(6)
-  }
-})
-
 onMounted(async () => {
   // Set up resize listener
   window.addEventListener('resize', handleResize, { passive: true })
@@ -160,6 +118,9 @@ onMounted(async () => {
 async function handleSelectConversation(conversationId) {
   if (conversationId === chatStore.currentConversationId) return
 
+  // Clean up empty conversation before switching (prevents orphaned conversations)
+  await cleanupEmptyConversation()
+
   conversationsStore.selectConversation(conversationId)
   await chatStore.setCurrentConversation(conversationId)
   scrollToBottom()
@@ -169,8 +130,28 @@ async function handleSelectConversation(conversationId) {
   }
 }
 
+// Delete conversation if it has no messages (prevents orphaned empty conversations)
+async function cleanupEmptyConversation() {
+  const currentId = chatStore.currentConversationId
+  if (!currentId) return
+
+  // Check if current conversation has no messages
+  const hasMessages = chatStore.messages.length > 0
+  if (!hasMessages) {
+    try {
+      await conversationsStore.deleteConversation(currentId)
+    } catch (e) {
+      // Silently fail - not critical
+      console.warn('Could not cleanup empty conversation:', e)
+    }
+  }
+}
+
 async function handleNewConversation() {
   try {
+    // Clean up empty conversation before creating new one
+    await cleanupEmptyConversation()
+
     const conv = await conversationsStore.createConversation()
     chatStore.clearCurrentConversation()
     chatStore.currentConversationId = conv.id
@@ -287,6 +268,30 @@ watch(
 
 function handleStopStreaming() {
   chatStore.stopStreaming()
+}
+
+async function handleRetryMessage() {
+  try {
+    await chatStore.retryLastMessage()
+    scrollToBottom()
+  } catch (e) {
+    console.error('Error retrying message:', e)
+  }
+}
+
+async function handleResendMessage(message) {
+  try {
+    // Remove the user message that failed to get a response
+    const msgIndex = chatStore.messages.findIndex(m => m.id === message.id)
+    if (msgIndex !== -1) {
+      chatStore.messages.splice(msgIndex, 1)
+    }
+    // Resend the message
+    await chatStore.sendMessageStream(message.content, chatStore.currentConversationId)
+    scrollToBottom()
+  } catch (e) {
+    console.error('Error resending message:', e)
+  }
 }
 
 async function handleClearHistory() {
@@ -466,12 +471,6 @@ async function handleDeleteAvatar() {
             <span class="text-sm text-gatales-text-secondary truncate max-w-[150px] sm:max-w-[200px]">
               {{ conversationTitle }}
             </span>
-            <!-- Token usage info (desktop only) -->
-            <div v-if="lastTokenInfo" class="hidden lg:flex items-center gap-3 text-xs text-gatales-text-secondary">
-              <span class="text-gatales-accent">|</span>
-              <span>{{ lastTokenInfo.input }} in / {{ lastTokenInfo.output }} out</span>
-              <span class="text-green-400">${{ lastTokenInfo.cost }}</span>
-            </div>
           </div>
 
           <!-- Assistant Selector Button -->
@@ -491,28 +490,7 @@ async function handleDeleteAvatar() {
         </div>
 
         <div class="flex items-center gap-2 sm:gap-4">
-          <!-- Token Usage Stats (mobile-friendly popup) -->
-          <div v-if="lastTokenInfo || conversationTokenInfo" class="relative group">
-            <button class="p-1.5 rounded-lg hover:bg-gatales-input transition-colors text-gatales-text-secondary">
-              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
-              </svg>
-            </button>
-            <!-- Popup on hover/focus -->
-            <div class="absolute right-0 mt-2 w-48 bg-gatales-sidebar border border-gatales-border rounded-lg shadow-lg py-2 px-3 z-50 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200">
-              <p class="text-xs font-medium text-gatales-text mb-2">Uso de tokens</p>
-              <div v-if="lastTokenInfo" class="text-xs text-gatales-text-secondary mb-1">
-                <span class="text-gatales-accent">Ultimo:</span> {{ lastTokenInfo.input }} in / {{ lastTokenInfo.output }} out
-                <span class="text-green-400 ml-1">${{ lastTokenInfo.cost }}</span>
-              </div>
-              <div v-if="conversationTokenInfo" class="text-xs text-gatales-text-secondary">
-                <span class="text-blue-400">Total:</span> {{ conversationTokenInfo.input }} in / {{ conversationTokenInfo.output }} out
-                <span class="text-green-400 ml-1">${{ conversationTokenInfo.cost }}</span>
-              </div>
-            </div>
-          </div>
-
-          <!-- Token Indicator -->
+          <!-- Token Indicator (solo muestra % de uso) -->
           <TokenIndicator
             :balance="authStore.tokensBalance"
             :monthly="authStore.tokensMonthly"
@@ -606,9 +584,41 @@ async function handleDeleteAvatar() {
         ref="messagesContainer"
         class="flex-1 overflow-y-auto overscroll-contain"
       >
-        <!-- Empty State -->
+        <!-- Loading State (when switching conversations) -->
         <div
-          v-if="!chatStore.hasMessages && !chatStore.isLoading"
+          v-if="chatStore.isLoading"
+          class="h-full flex flex-col"
+        >
+          <div class="max-w-3xl mx-auto w-full py-4 px-3 sm:px-4 space-y-6">
+            <!-- Skeleton messages -->
+            <div v-for="i in 3" :key="i" class="animate-pulse">
+              <div class="flex items-start gap-3">
+                <div class="w-8 h-8 rounded-full bg-gatales-input shrink-0"></div>
+                <div class="flex-1 space-y-2">
+                  <div class="h-3 w-16 bg-gatales-input rounded"></div>
+                  <div class="space-y-2">
+                    <div class="h-4 bg-gatales-input rounded" :style="{ width: (70 + i * 10) + '%' }"></div>
+                    <div class="h-4 bg-gatales-input rounded" :style="{ width: (50 + i * 15) + '%' }"></div>
+                    <div v-if="i < 3" class="h-4 bg-gatales-input rounded" :style="{ width: (40 + i * 10) + '%' }"></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="flex-1 flex items-center justify-center pb-20">
+            <div class="text-center">
+              <svg class="animate-spin h-8 w-8 text-gatales-accent mx-auto mb-3" fill="none" viewBox="0 0 24 24">
+                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+              </svg>
+              <p class="text-sm text-gatales-text-secondary">Cargando conversacion...</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- Empty State (new conversation) -->
+        <div
+          v-else-if="!chatStore.hasMessages"
           class="h-full flex items-center justify-center px-4"
         >
           <div class="text-center max-w-sm sm:max-w-md">
@@ -629,11 +639,16 @@ async function handleDeleteAvatar() {
         <!-- Messages -->
         <div v-else class="max-w-3xl mx-auto py-2 sm:py-4">
           <ChatMessage
-            v-for="message in chatStore.messages"
+            v-for="(message, index) in chatStore.messages"
             :key="message.id"
             :message="message"
             :user-avatar="authStore.user?.avatar_url"
             :user-name="authStore.user?.name || 'Usuario'"
+            :is-last-message="index === chatStore.messages.length - 1"
+            :is-generating="chatStore.isSending || chatStore.isStreaming || chatStore.isThinking"
+            @retry="handleRetryMessage"
+            @regenerate="handleRetryMessage"
+            @resend="handleResendMessage(message)"
           />
 
           <!-- Typing indicator (only when sending but not streaming/thinking - those show content directly) -->

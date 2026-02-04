@@ -73,6 +73,7 @@ class DeepSeekService
 
     /**
      * Send a message with streaming response
+     * Uses a queue-based approach to yield chunks as they arrive from cURL
      *
      * @return \Generator yields chunks of text
      */
@@ -96,12 +97,15 @@ class DeepSeekService
 
         $requestParams = $this->buildRequestParams($settings, $messages, $assistant);
         $requestParams['stream'] = true;
+        // Request usage stats in final chunk
+        $requestParams['stream_options'] = ['include_usage' => true];
 
         $fullContent = '';
         $tokensInput = 0;
         $tokensOutput = 0;
         $messageId = null;
-        $chunks = [];
+        $buffer = '';
+        $chunks = []; // Queue for chunks to yield
 
         $ch = curl_init($this->baseUrl . '/chat/completions');
         curl_setopt_array($ch, [
@@ -112,84 +116,98 @@ class DeepSeekService
                 'Content-Type: application/json',
                 'Accept: text/event-stream',
             ],
-            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_RETURNTRANSFER => false, // Don't buffer - process in real-time
             CURLOPT_TIMEOUT => 300,
-            CURLOPT_WRITEFUNCTION => function ($ch, $data) use (&$chunks) {
-                $chunks[] = $data;
+            CURLOPT_WRITEFUNCTION => function ($ch, $data) use (&$buffer, &$chunks, &$fullContent, &$messageId, &$tokensInput, &$tokensOutput) {
+                $buffer .= $data;
+
+                // Process complete lines as they arrive
+                while (($pos = strpos($buffer, "\n")) !== false) {
+                    $line = substr($buffer, 0, $pos);
+                    $buffer = substr($buffer, $pos + 1);
+                    $line = trim($line);
+
+                    if (empty($line)) continue;
+
+                    if (str_starts_with($line, 'data: ')) {
+                        $jsonStr = substr($line, 6);
+
+                        if ($jsonStr === '[DONE]') {
+                            continue;
+                        }
+
+                        $event = json_decode($jsonStr, true);
+                        if (!$event) continue;
+
+                        if (!$messageId && isset($event['id'])) {
+                            $messageId = $event['id'];
+                        }
+
+                        // Content chunks
+                        if (isset($event['choices'][0]['delta']['content'])) {
+                            $chunk = $event['choices'][0]['delta']['content'];
+                            if ($chunk !== null && $chunk !== '') {
+                                $fullContent .= $chunk;
+                                $chunks[] = ['type' => 'content', 'content' => $chunk];
+                            }
+                        }
+
+                        // DeepSeek reasoner reasoning content
+                        if (isset($event['choices'][0]['delta']['reasoning_content'])) {
+                            $reasoning = $event['choices'][0]['delta']['reasoning_content'];
+                            if ($reasoning !== null && $reasoning !== '') {
+                                $chunks[] = ['type' => 'reasoning', 'content' => $reasoning];
+                            }
+                        }
+
+                        // Usage stats (usually in final chunk)
+                        if (isset($event['usage'])) {
+                            $tokensInput = $event['usage']['prompt_tokens'] ?? 0;
+                            $tokensOutput = $event['usage']['completion_tokens'] ?? 0;
+                        }
+                    }
+                }
+
                 return strlen($data);
             },
         ]);
 
-        curl_exec($ch);
-        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-        $curlError = curl_error($ch);
-        curl_close($ch);
+        // Execute cURL in a non-blocking way by using curl_multi
+        $mh = curl_multi_init();
+        curl_multi_add_handle($mh, $ch);
 
-        if ($httpCode !== 200) {
-            $responseBody = implode('', $chunks);
-            Log::error('DeepSeek streaming error', [
-                'http_code' => $httpCode,
-                'response_body' => $responseBody,
-                'curl_error' => $curlError,
-                'request_params' => $requestParams,
-            ]);
+        do {
+            $status = curl_multi_exec($mh, $active);
 
-            // Try to extract error message from response
-            $errorData = json_decode($responseBody, true);
-            $errorMessage = $errorData['error']['message'] ?? $errorData['message'] ?? $responseBody;
+            // Yield any accumulated chunks
+            while (!empty($chunks)) {
+                yield array_shift($chunks);
+            }
 
-            throw new \Exception('DeepSeek API error (HTTP ' . $httpCode . '): ' . $errorMessage);
+            // Small sleep to prevent CPU spinning
+            if ($active && $status === CURLM_OK) {
+                curl_multi_select($mh, 0.01);
+            }
+        } while ($active && $status === CURLM_OK);
+
+        // Yield any remaining chunks
+        while (!empty($chunks)) {
+            yield array_shift($chunks);
         }
 
-        // Process chunks
-        $buffer = implode('', $chunks);
-        $lines = explode("\n", $buffer);
+        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $curlError = curl_error($ch);
 
-        foreach ($lines as $line) {
-            $line = trim($line);
-            if (empty($line)) continue;
+        curl_multi_remove_handle($mh, $ch);
+        curl_close($ch);
+        curl_multi_close($mh);
 
-            if (str_starts_with($line, 'data: ')) {
-                $jsonStr = substr($line, 6);
-
-                if ($jsonStr === '[DONE]') {
-                    break;
-                }
-
-                $data = json_decode($jsonStr, true);
-                if (!$data) continue;
-
-                if (!$messageId && isset($data['id'])) {
-                    $messageId = $data['id'];
-                }
-
-                if (isset($data['choices'][0]['delta']['content'])) {
-                    $chunk = $data['choices'][0]['delta']['content'];
-                    if ($chunk !== null && $chunk !== '') {
-                        $fullContent .= $chunk;
-                        yield [
-                            'type' => 'content',
-                            'content' => $chunk,
-                        ];
-                    }
-                }
-
-                // DeepSeek reasoner includes reasoning_content
-                if (isset($data['choices'][0]['delta']['reasoning_content'])) {
-                    $reasoning = $data['choices'][0]['delta']['reasoning_content'];
-                    if ($reasoning !== null && $reasoning !== '') {
-                        yield [
-                            'type' => 'reasoning',
-                            'content' => $reasoning,
-                        ];
-                    }
-                }
-
-                if (isset($data['usage'])) {
-                    $tokensInput = $data['usage']['prompt_tokens'] ?? 0;
-                    $tokensOutput = $data['usage']['completion_tokens'] ?? 0;
-                }
-            }
+        if ($httpCode !== 200 && $httpCode !== 0) {
+            Log::error('DeepSeek streaming error', [
+                'http_code' => $httpCode,
+                'curl_error' => $curlError,
+            ]);
+            throw new \Exception('DeepSeek API error (HTTP ' . $httpCode . '): ' . $curlError);
         }
 
         yield [

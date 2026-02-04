@@ -199,7 +199,10 @@ function formatDate(dateStr) {
                     class="w-full bg-gatales-input border border-gatales-border rounded px-1.5 py-0.5 text-xs focus:outline-none focus:ring-1 focus:ring-gatales-accent"
                     autofocus
                   />
-                  <p v-else class="text-xs truncate">{{ conv.title || 'Nueva conversacion' }}</p>
+                  <p v-else :class="[
+                    'text-xs truncate',
+                    conv.message_count === 0 ? 'italic opacity-60' : ''
+                  ]">{{ conv.title || 'Nueva conversacion' }}</p>
                 </div>
 
                 <!-- Actions Button (on hover) -->

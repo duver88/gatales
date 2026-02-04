@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
+use App\Http\Middleware\ReleaseResourcesForStreaming;
 use App\Models\Assistant;
 use App\Models\Conversation;
 use App\Models\Message;
@@ -11,6 +12,7 @@ use App\Services\OpenAIAssistantService;
 use App\Services\TokenService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 use OpenAI\Laravel\Facades\OpenAI;
@@ -385,7 +387,17 @@ class AdminConversationController extends Controller
         $isDeepSeek = $assistant->isDeepSeek();
         $provider = $isDeepSeek ? 'deepseek' : 'openai';
 
-        return new StreamedResponse(function () use ($admin, $message, $conversation, $assistant, $usesResponsesApi, $isDeepSeek, $provider) {
+        // Cache IDs before releasing resources
+        $adminId = $admin->id;
+        $conversationId = $conversation->id;
+        $assistantId = $assistant->id;
+        $assistantSettings = $assistant->toSettingsArray();
+
+        // CRITICAL: Release ALL resources before streaming
+        // This prevents blocking other requests while AI generates response
+        ReleaseResourcesForStreaming::releaseAll();
+
+        return new StreamedResponse(function () use ($adminId, $message, $conversationId, $assistantId, $assistantSettings, $usesResponsesApi, $isDeepSeek, $provider) {
             // Deshabilitar timeout de PHP para streaming largo (GPT-5 puede tardar varios minutos)
             set_time_limit(0);
 

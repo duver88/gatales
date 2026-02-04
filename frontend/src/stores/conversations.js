@@ -63,6 +63,14 @@ export const useConversationsStore = defineStore('conversations', () => {
       const newConversation = response.data.conversation
       conversations.value.unshift(newConversation)
       currentConversationId.value = newConversation.id
+
+      // Also add to groupedConversations so it appears in sidebar immediately
+      if (!groupedConversations.value.today) {
+        groupedConversations.value.today = { title: 'Hoy', conversations: [] }
+      }
+      // Add to beginning of "today" group
+      groupedConversations.value.today.conversations.unshift(newConversation)
+
       return newConversation
     } catch (e) {
       console.error('Error creating conversation:', e)
@@ -161,9 +169,22 @@ export const useConversationsStore = defineStore('conversations', () => {
 
   // Update local conversation data when messages are sent
   function updateConversationLocally(id, updates) {
+    // Update in flat conversations list
     const conversation = conversations.value.find(c => c.id === id)
     if (conversation) {
       Object.assign(conversation, updates)
+    }
+
+    // Also update in grouped conversations
+    for (const key in groupedConversations.value) {
+      const group = groupedConversations.value[key]
+      if (group.conversations) {
+        const groupedConv = group.conversations.find(c => c.id === id)
+        if (groupedConv) {
+          Object.assign(groupedConv, updates)
+          break
+        }
+      }
     }
   }
 

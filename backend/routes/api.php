@@ -15,6 +15,7 @@ use App\Http\Controllers\Admin\AiSettingsController;
 use App\Http\Controllers\Admin\AssistantController;
 use App\Http\Controllers\Admin\AssistantFileController;
 use App\Http\Controllers\Admin\AdminConversationController;
+use App\Http\Controllers\Admin\EmailLogController;
 use App\Http\Controllers\ConversationController;
 
 /*
@@ -27,10 +28,10 @@ use App\Http\Controllers\ConversationController;
 // PUBLIC ROUTES (No authentication required)
 // ========================================
 
-// User Authentication
+// User Authentication (with rate limiting to prevent brute force)
 Route::prefix('auth')->group(function () {
-    Route::post('/set-password', [AuthController::class, 'setPassword']);
-    Route::post('/login', [AuthController::class, 'login']);
+    Route::post('/set-password', [AuthController::class, 'setPassword'])->middleware('throttle:5,1'); // 5 attempts per minute
+    Route::post('/login', [AuthController::class, 'login'])->middleware('throttle:5,1'); // 5 attempts per minute
 });
 
 // Webhooks (Protected by API Key middleware)
@@ -88,8 +89,8 @@ Route::middleware(['auth:sanctum', 'user.active'])->group(function () {
 // ========================================
 
 Route::prefix('admin')->group(function () {
-    // Admin Auth (Public)
-    Route::post('/auth/login', [AdminAuthController::class, 'login']);
+    // Admin Auth (Public - with strict rate limiting)
+    Route::post('/auth/login', [AdminAuthController::class, 'login'])->middleware('throttle:3,1'); // 3 attempts per minute
 
     // Admin Protected Routes
     Route::middleware('auth:admin')->group(function () {
@@ -159,6 +160,17 @@ Route::prefix('admin')->group(function () {
             Route::post('/{conversation}/messages/stream', [AdminConversationController::class, 'sendMessageStream']);
             Route::delete('/{conversation}', [AdminConversationController::class, 'destroy']);
             Route::delete('/clear-all', [AdminConversationController::class, 'clearAll']);
+        });
+
+        // Email Logs (monitoring bounces and delivery issues)
+        Route::prefix('emails')->group(function () {
+            Route::get('/stats', [EmailLogController::class, 'stats']);
+            Route::get('/bounced', [EmailLogController::class, 'bouncedEmails']);
+            Route::get('/', [EmailLogController::class, 'index']);
+            Route::post('/', [EmailLogController::class, 'store']);
+            Route::get('/{emailLog}', [EmailLogController::class, 'show']);
+            Route::post('/{emailLog}/resend', [EmailLogController::class, 'resend']);
+            Route::post('/webhook', [EmailLogController::class, 'updateStatus']);
         });
     });
 });

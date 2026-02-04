@@ -505,3 +505,78 @@
 .fade-leave-to {
   opacity: 0;
 }
+
+/* Improved skeleton loading animation */
+@keyframes shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+.animate-pulse {
+  animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+@keyframes pulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
+}
+
+/* Smooth message appearance */
+.message-enter-active {
+  transition: all 0.3s ease-out;
+}
+
+.message-enter-from {
+  opacity: 0;
+  transform: translateY(10px);
+}
+
+/* Conversation switch transition */
+.conversation-fade-enter-active,
+.conversation-fade-leave-active {
+  transition: opacity 0.15s ease;
+}
+
+.conversation-fade-enter-from,
+.conversation-fade-leave-to {
+  opacity: 0;
+}
+
+/* Smooth scroll behavior */
+.smooth-scroll {
+  scroll-behavior: smooth;
+}
+
+/* Focus visible outline for accessibility */
+*:focus-visible {
+  outline: 2px solid var(--color-brand);
+  outline-offset: 2px;
+}
+
+/* Improved code block styles for light mode */
+:root[data-theme="light"] .code-block-wrapper {
+  background: #f6f8fa;
+  border-color: #d0d7de;
+}
+
+:root[data-theme="light"] .code-block-header {
+  background: #eaeef2;
+  border-color: #d0d7de;
+}
+
+:root[data-theme="light"] .code-block {
+  color: #24292f;
+}
+
+:root[data-theme="light"] .inline-code {
+  background: #f6f8fa;
+  color: #cf222e;
+}

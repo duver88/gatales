@@ -7,7 +7,7 @@ const route = useRoute()
 const router = useRouter()
 
 const user = ref(null)
-const recentMessages = ref([])
+const conversations = ref([])
 const tokenStats = ref([])
 const plans = ref([])
 const isLoading = ref(true)
@@ -27,7 +27,7 @@ async function fetchUser() {
       adminApi.getPlans(),
     ])
     user.value = userResponse.data.user
-    recentMessages.value = userResponse.data.recent_messages
+    conversations.value = userResponse.data.conversations || []
     tokenStats.value = userResponse.data.token_stats
     plans.value = plansResponse.data.plans
     selectedPlanId.value = user.value.subscription?.plan_id
@@ -202,89 +202,196 @@ function getStatusClass(status) {
 
       <!-- Token Usage History -->
       <div class="card mb-8" v-if="tokenStats">
-        <h2 class="text-lg font-semibold text-gatales-text mb-4">Consumo de Tokens</h2>
+        <h2 class="text-lg font-semibold text-gatales-text mb-4">Consumo de Tokens por Proveedor</h2>
 
-        <!-- Totals Summary -->
-        <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-          <div class="bg-gatales-input rounded-lg p-3">
-            <p class="text-xs text-gatales-text-secondary">Total Historico</p>
-            <p class="text-lg font-bold text-gatales-text">{{ formatNumber(tokenStats.all_time_totals?.total || 0) }}</p>
-            <p class="text-xs text-gatales-text-secondary">tokens</p>
+        <!-- Provider Totals - All Time -->
+        <div class="mb-6">
+          <h3 class="text-sm font-medium text-gatales-text-secondary mb-3">Totales Históricos</h3>
+          <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <!-- OpenAI -->
+            <div class="bg-gradient-to-br from-green-500/10 to-green-600/5 border border-green-500/20 rounded-lg p-4">
+              <div class="flex items-center gap-2 mb-2">
+                <span class="text-green-400 font-semibold">OpenAI</span>
+              </div>
+              <div class="grid grid-cols-2 gap-2 text-sm">
+                <div>
+                  <p class="text-gatales-text-secondary text-xs">Tokens</p>
+                  <p class="text-gatales-text font-medium">{{ formatNumber(tokenStats.all_time_totals?.openai?.total || 0) }}</p>
+                </div>
+                <div>
+                  <p class="text-gatales-text-secondary text-xs">Costo USD</p>
+                  <p class="text-green-400 font-bold">${{ (tokenStats.all_time_totals?.openai?.cost || 0).toFixed(4) }}</p>
+                </div>
+              </div>
+            </div>
+            <!-- DeepSeek -->
+            <div class="bg-gradient-to-br from-blue-500/10 to-blue-600/5 border border-blue-500/20 rounded-lg p-4">
+              <div class="flex items-center gap-2 mb-2">
+                <span class="text-blue-400 font-semibold">DeepSeek</span>
+              </div>
+              <div class="grid grid-cols-2 gap-2 text-sm">
+                <div>
+                  <p class="text-gatales-text-secondary text-xs">Tokens</p>
+                  <p class="text-gatales-text font-medium">{{ formatNumber(tokenStats.all_time_totals?.deepseek?.total || 0) }}</p>
+                </div>
+                <div>
+                  <p class="text-gatales-text-secondary text-xs">Costo USD</p>
+                  <p class="text-blue-400 font-bold">${{ (tokenStats.all_time_totals?.deepseek?.cost || 0).toFixed(4) }}</p>
+                </div>
+              </div>
+            </div>
+            <!-- Total -->
+            <div class="bg-gatales-input rounded-lg p-4">
+              <div class="flex items-center gap-2 mb-2">
+                <span class="text-gatales-text font-semibold">Total</span>
+              </div>
+              <div class="grid grid-cols-2 gap-2 text-sm">
+                <div>
+                  <p class="text-gatales-text-secondary text-xs">Tokens</p>
+                  <p class="text-gatales-text font-medium">{{ formatNumber(tokenStats.all_time_totals?.total || 0) }}</p>
+                </div>
+                <div>
+                  <p class="text-gatales-text-secondary text-xs">Costo USD</p>
+                  <p class="text-amber-400 font-bold">${{ (tokenStats.all_time_totals?.total_cost || 0).toFixed(4) }}</p>
+                </div>
+              </div>
+            </div>
           </div>
-          <div class="bg-gatales-input rounded-lg p-3">
-            <p class="text-xs text-gatales-text-secondary">Costo Total</p>
-            <p class="text-lg font-bold text-green-400">${{ (tokenStats.all_time_totals?.estimated_cost || 0).toFixed(4) }}</p>
-            <p class="text-xs text-gatales-text-secondary">USD</p>
-          </div>
-          <div class="bg-gatales-input rounded-lg p-3">
-            <p class="text-xs text-gatales-text-secondary">Ultimos 30 dias</p>
-            <p class="text-lg font-bold text-gatales-text">{{ formatNumber(tokenStats.period_totals?.total || 0) }}</p>
-            <p class="text-xs text-gatales-text-secondary">tokens</p>
-          </div>
-          <div class="bg-gatales-input rounded-lg p-3">
-            <p class="text-xs text-gatales-text-secondary">Costo 30 dias</p>
-            <p class="text-lg font-bold text-green-400">${{ (tokenStats.period_totals?.estimated_cost || 0).toFixed(4) }}</p>
-            <p class="text-xs text-gatales-text-secondary">USD</p>
+        </div>
+
+        <!-- Provider Totals - Last 30 Days -->
+        <div class="mb-6">
+          <h3 class="text-sm font-medium text-gatales-text-secondary mb-3">Últimos 30 Días</h3>
+          <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <!-- OpenAI -->
+            <div class="bg-gradient-to-br from-green-500/10 to-green-600/5 border border-green-500/20 rounded-lg p-4">
+              <div class="flex items-center gap-2 mb-2">
+                <span class="text-green-400 font-semibold">OpenAI</span>
+              </div>
+              <div class="grid grid-cols-2 gap-2 text-sm">
+                <div>
+                  <p class="text-gatales-text-secondary text-xs">Tokens</p>
+                  <p class="text-gatales-text font-medium">{{ formatNumber(tokenStats.period_totals?.openai?.total || 0) }}</p>
+                </div>
+                <div>
+                  <p class="text-gatales-text-secondary text-xs">Costo USD</p>
+                  <p class="text-green-400 font-bold">${{ (tokenStats.period_totals?.openai?.cost || 0).toFixed(4) }}</p>
+                </div>
+              </div>
+            </div>
+            <!-- DeepSeek -->
+            <div class="bg-gradient-to-br from-blue-500/10 to-blue-600/5 border border-blue-500/20 rounded-lg p-4">
+              <div class="flex items-center gap-2 mb-2">
+                <span class="text-blue-400 font-semibold">DeepSeek</span>
+              </div>
+              <div class="grid grid-cols-2 gap-2 text-sm">
+                <div>
+                  <p class="text-gatales-text-secondary text-xs">Tokens</p>
+                  <p class="text-gatales-text font-medium">{{ formatNumber(tokenStats.period_totals?.deepseek?.total || 0) }}</p>
+                </div>
+                <div>
+                  <p class="text-gatales-text-secondary text-xs">Costo USD</p>
+                  <p class="text-blue-400 font-bold">${{ (tokenStats.period_totals?.deepseek?.cost || 0).toFixed(4) }}</p>
+                </div>
+              </div>
+            </div>
+            <!-- Total -->
+            <div class="bg-gatales-input rounded-lg p-4">
+              <div class="flex items-center gap-2 mb-2">
+                <span class="text-gatales-text font-semibold">Total</span>
+              </div>
+              <div class="grid grid-cols-2 gap-2 text-sm">
+                <div>
+                  <p class="text-gatales-text-secondary text-xs">Tokens</p>
+                  <p class="text-gatales-text font-medium">{{ formatNumber(tokenStats.period_totals?.total || 0) }}</p>
+                </div>
+                <div>
+                  <p class="text-gatales-text-secondary text-xs">Costo USD</p>
+                  <p class="text-amber-400 font-bold">${{ (tokenStats.period_totals?.total_cost || 0).toFixed(4) }}</p>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
 
         <!-- Daily Breakdown Table -->
-        <div v-if="tokenStats.daily?.length > 0" class="overflow-x-auto">
-          <table class="w-full text-sm">
-            <thead>
-              <tr class="border-b border-gatales-border text-left">
-                <th class="py-2 px-3 text-gatales-text-secondary font-medium">Fecha</th>
-                <th class="py-2 px-3 text-gatales-text-secondary font-medium text-right">Input</th>
-                <th class="py-2 px-3 text-gatales-text-secondary font-medium text-right">Output</th>
-                <th class="py-2 px-3 text-gatales-text-secondary font-medium text-right">Total</th>
-                <th class="py-2 px-3 text-gatales-text-secondary font-medium text-right">Costo USD</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr
-                v-for="day in [...tokenStats.daily].reverse()"
-                :key="day.date"
-                class="border-b border-gatales-border/50 hover:bg-gatales-input/50"
-              >
-                <td class="py-2 px-3 text-gatales-text">{{ day.date }}</td>
-                <td class="py-2 px-3 text-gatales-text text-right">{{ formatNumber(day.tokens_input) }}</td>
-                <td class="py-2 px-3 text-gatales-text text-right">{{ formatNumber(day.tokens_output) }}</td>
-                <td class="py-2 px-3 text-gatales-text font-medium text-right">{{ formatNumber(day.total) }}</td>
-                <td class="py-2 px-3 text-green-400 text-right">${{ day.estimated_cost.toFixed(4) }}</td>
-              </tr>
-            </tbody>
-          </table>
+        <div v-if="tokenStats.daily?.length > 0">
+          <h3 class="text-sm font-medium text-gatales-text-secondary mb-3">Desglose Diario</h3>
+          <div class="overflow-x-auto">
+            <table class="w-full text-sm">
+              <thead>
+                <tr class="border-b border-gatales-border text-left">
+                  <th class="py-2 px-3 text-gatales-text-secondary font-medium">Fecha</th>
+                  <th class="py-2 px-3 text-green-400 font-medium text-right">OpenAI</th>
+                  <th class="py-2 px-3 text-green-400 font-medium text-right">Costo</th>
+                  <th class="py-2 px-3 text-blue-400 font-medium text-right">DeepSeek</th>
+                  <th class="py-2 px-3 text-blue-400 font-medium text-right">Costo</th>
+                  <th class="py-2 px-3 text-gatales-text-secondary font-medium text-right">Total</th>
+                  <th class="py-2 px-3 text-amber-400 font-medium text-right">Costo Total</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr
+                  v-for="day in [...tokenStats.daily].reverse()"
+                  :key="day.date"
+                  class="border-b border-gatales-border/50 hover:bg-gatales-input/50"
+                >
+                  <td class="py-2 px-3 text-gatales-text">{{ day.date }}</td>
+                  <td class="py-2 px-3 text-gatales-text text-right">{{ formatNumber(day.openai?.total || 0) }}</td>
+                  <td class="py-2 px-3 text-green-400 text-right">${{ (day.openai?.cost || 0).toFixed(4) }}</td>
+                  <td class="py-2 px-3 text-gatales-text text-right">{{ formatNumber(day.deepseek?.total || 0) }}</td>
+                  <td class="py-2 px-3 text-blue-400 text-right">${{ (day.deepseek?.cost || 0).toFixed(4) }}</td>
+                  <td class="py-2 px-3 text-gatales-text font-medium text-right">{{ formatNumber(day.total || 0) }}</td>
+                  <td class="py-2 px-3 text-amber-400 font-bold text-right">${{ (day.total_cost || 0).toFixed(4) }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
         </div>
         <div v-else class="text-gatales-text-secondary text-sm">
           No hay datos de consumo
         </div>
       </div>
 
-      <!-- Recent Messages -->
+      <!-- Conversations -->
       <div class="card mb-8">
-        <h2 class="text-lg font-semibold text-gatales-text mb-4">Mensajes Recientes</h2>
-        <div v-if="recentMessages.length === 0" class="text-gatales-text-secondary text-sm">
-          No hay mensajes
+        <h2 class="text-lg font-semibold text-gatales-text mb-4">Conversaciones ({{ conversations.length }})</h2>
+        <div v-if="conversations.length === 0" class="text-gatales-text-secondary text-sm">
+          No hay conversaciones
         </div>
-        <div v-else class="space-y-3 max-h-96 overflow-y-auto">
-          <div
-            v-for="msg in recentMessages"
-            :key="msg.id"
-            :class="[
-              'p-3 rounded-lg',
-              msg.role === 'user' ? 'bg-gatales-input' : 'bg-gatales-accent/10'
-            ]"
-          >
-            <div class="flex justify-between items-start mb-1">
-              <span class="text-xs font-medium" :class="msg.role === 'user' ? 'text-gatales-text' : 'text-gatales-accent'">
-                {{ msg.role === 'user' ? 'Usuario' : 'Asistente' }}
-              </span>
-              <span class="text-xs text-gatales-text-secondary">
-                {{ msg.tokens_used }} tokens
-              </span>
-            </div>
-            <p class="text-sm text-gatales-text line-clamp-3">{{ msg.content }}</p>
-          </div>
+        <div v-else class="overflow-x-auto">
+          <table class="w-full text-sm">
+            <thead>
+              <tr class="border-b border-gatales-border text-left">
+                <th class="py-2 px-3 text-gatales-text-secondary font-medium">Título</th>
+                <th class="py-2 px-3 text-gatales-text-secondary font-medium text-center">Mensajes</th>
+                <th class="py-2 px-3 text-gatales-text-secondary font-medium text-right">Tokens Input</th>
+                <th class="py-2 px-3 text-gatales-text-secondary font-medium text-right">Tokens Output</th>
+                <th class="py-2 px-3 text-gatales-text-secondary font-medium text-right">Total Tokens</th>
+                <th class="py-2 px-3 text-gatales-text-secondary font-medium text-right">Costo USD</th>
+                <th class="py-2 px-3 text-gatales-text-secondary font-medium text-right">Último mensaje</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr
+                v-for="conv in conversations"
+                :key="conv.id"
+                class="border-b border-gatales-border/50 hover:bg-gatales-input/50"
+              >
+                <td class="py-2 px-3 text-gatales-text max-w-xs truncate" :title="conv.title">
+                  {{ conv.title }}
+                </td>
+                <td class="py-2 px-3 text-gatales-text text-center">{{ conv.messages_count }}</td>
+                <td class="py-2 px-3 text-gatales-text text-right">{{ formatNumber(conv.tokens_input) }}</td>
+                <td class="py-2 px-3 text-gatales-text text-right">{{ formatNumber(conv.tokens_output) }}</td>
+                <td class="py-2 px-3 text-gatales-text font-medium text-right">{{ formatNumber(conv.total_tokens) }}</td>
+                <td class="py-2 px-3 text-green-400 text-right">${{ (conv.estimated_cost || 0).toFixed(4) }}</td>
+                <td class="py-2 px-3 text-gatales-text-secondary text-right text-xs">
+                  {{ conv.last_message_at ? formatDate(conv.last_message_at) : '-' }}
+                </td>
+              </tr>
+            </tbody>
+          </table>
         </div>
       </div>
     </template>

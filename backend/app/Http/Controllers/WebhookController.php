@@ -95,6 +95,9 @@ class WebhookController extends Controller
                 'ends_at' => now()->addMonth(),
             ]);
 
+            // Clear plan cache so hasFreePlan() returns updated value
+            $user->clearPlanCache();
+
             DB::commit();
 
             $log->markAsProcessed();
@@ -110,7 +113,7 @@ class WebhookController extends Controller
 
             return response()->json([
                 'success' => false,
-                'message' => 'Error al procesar el webhook: ' . $e->getMessage(),
+                'message' => config('app.debug') ? 'Error al procesar el webhook: ' . $e->getMessage() : 'Error al procesar el webhook',
             ], 500);
         }
     }
@@ -150,6 +153,9 @@ class WebhookController extends Controller
                 ->where('status', 'active')
                 ->update(['status' => 'cancelled', 'cancelled_at' => now()]);
 
+            // Clear plan cache so hasFreePlan() returns updated value
+            $user->clearPlanCache();
+
             DB::commit();
 
             // Send cancellation notification email
@@ -169,7 +175,7 @@ class WebhookController extends Controller
 
             return response()->json([
                 'success' => false,
-                'message' => 'Error al procesar la cancelación: ' . $e->getMessage(),
+                'message' => config('app.debug') ? 'Error al procesar la cancelación: ' . $e->getMessage() : 'Error al procesar la cancelación',
             ], 500);
         }
     }
@@ -217,6 +223,9 @@ class WebhookController extends Controller
                 'ends_at' => now()->addMonth(),
             ]);
 
+            // Clear plan cache for consistency
+            $user->clearPlanCache();
+
             DB::commit();
 
             // Send renewal notification email
@@ -237,7 +246,7 @@ class WebhookController extends Controller
 
             return response()->json([
                 'success' => false,
-                'message' => 'Error al procesar la renovación: ' . $e->getMessage(),
+                'message' => config('app.debug') ? 'Error al procesar la renovación: ' . $e->getMessage() : 'Error al procesar la renovación',
             ], 500);
         }
     }
@@ -277,6 +286,9 @@ class WebhookController extends Controller
                 ->where('status', 'active')
                 ->update(['status' => 'cancelled', 'cancelled_at' => now()]);
 
+            // Clear plan cache so hasFreePlan() returns updated value
+            $user->clearPlanCache();
+
             DB::commit();
 
             $log->markAsProcessed();
@@ -291,7 +303,7 @@ class WebhookController extends Controller
 
             return response()->json([
                 'success' => false,
-                'message' => 'Error al procesar el reembolso: ' . $e->getMessage(),
+                'message' => config('app.debug') ? 'Error al procesar el reembolso: ' . $e->getMessage() : 'Error al procesar el reembolso',
             ], 500);
         }
     }

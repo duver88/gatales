@@ -8,6 +8,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
+use Illuminate\Support\Facades\Cache;
 use Laravel\Sanctum\HasApiTokens;
 
 class User extends Authenticatable
@@ -71,13 +72,28 @@ class User extends Authenticatable
     }
 
     /**
-     * Deduct tokens from user balance
+     * Deduct tokens from user balance (atomic operation to prevent race conditions)
      */
     public function deductTokens(int $amount): void
     {
-        $this->tokens_balance = max(0, $this->tokens_balance - $amount);
-        $this->tokens_used_month += $amount;
-        $this->save();
+        // Sanitize: ensure positive integer to prevent SQL injection
+        $safeAmount = max(0, abs((int) $amount));
+
+        if ($safeAmount === 0) {
+            return;
+        }
+
+        // Use atomic SQL update to prevent race conditions
+        // Using decrement/increment is safer than DB::raw with interpolation
+        static::where('id', $this->id)
+            ->update([
+                'tokens_balance' => \DB::raw("GREATEST(0, tokens_balance - " . $safeAmount . ")"),
+                'tokens_used_month' => \DB::raw("tokens_used_month + " . $safeAmount),
+            ]);
+
+        // Update local values without extra query
+        $this->tokens_balance = max(0, $this->tokens_balance - $safeAmount);
+        $this->tokens_used_month += $safeAmount;
     }
 
     /**
@@ -157,32 +173,45 @@ class User extends Authenticatable
     }
 
     /**
-     * Check if user has the free plan
+     * Check if user has the free plan (cached for 5 minutes)
      */
     public function hasFreePlan(): bool
     {
-        $subscription = $this->activeSubscription;
+        return Cache::remember("user_{$this->id}_has_free_plan", 300, function () {
+            $subscription = $this->activeSubscription;
 
-        if (!$subscription) {
-            return true; // No subscription = free plan
-        }
+            if (!$subscription) {
+                return true; // No subscription = free plan
+            }
 
-        $plan = $subscription->plan;
+            $plan = $subscription->plan;
 
-        return $plan && $plan->isFree();
+            return $plan && $plan->isFree();
+        });
     }
 
     /**
-     * Get the current plan name
+     * Get the current plan name (cached for 5 minutes)
      */
     public function getCurrentPlanName(): string
     {
-        $subscription = $this->activeSubscription;
+        return Cache::remember("user_{$this->id}_plan_name", 300, function () {
+            $subscription = $this->activeSubscription;
 
-        if (!$subscription || !$subscription->plan) {
-            return 'Plan Gratuito';
-        }
+            if (!$subscription || !$subscription->plan) {
+                return 'Plan Gratuito';
+            }
 
-        return $subscription->plan->name;
+            return $subscription->plan->name;
+        });
+    }
+
+    /**
+     * Clear plan cache (call when subscription changes)
+     */
+    public function clearPlanCache(): void
+    {
+        Cache::forget("user_{$this->id}_has_free_plan");
+        Cache::forget("user_{$this->id}_plan_name");
     }
 }

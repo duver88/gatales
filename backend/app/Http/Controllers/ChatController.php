@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Http\Middleware\ReleaseResourcesForStreaming;
 use App\Models\Assistant;
 use App\Models\Conversation;
 use App\Models\Message;
@@ -11,6 +12,7 @@ use App\Services\TokenService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 use OpenAI\Laravel\Facades\OpenAI;
@@ -261,7 +263,32 @@ class ChatController extends Controller
         $provider = $isDeepSeek ? 'deepseek' : 'openai';
         $usesResponsesApi = !$isDeepSeek && $assistant && $assistant->usesResponsesApi();
 
-        return new StreamedResponse(function () use ($user, $userId, $message, $conversation, $assistant, $usesResponsesApi, $isDeepSeek, $provider) {
+        // Cache all data needed for the streaming closure BEFORE releasing resources
+        $userTokensBalance = $user->tokens_balance;
+        $conversationId = $conversation->id;
+        $assistantSettings = $assistant ? $assistant->toSettingsArray() : null;
+        $assistantId = $assistant?->id;
+
+        // Check if first message (do this BEFORE releasing DB connection)
+        $isFirstMessage = $conversation->messages()->doesntExist();
+
+        // Save user message BEFORE releasing resources
+        $userMessage = Message::create([
+            'user_id' => $userId,
+            'conversation_id' => $conversationId,
+            'provider' => $provider,
+            'role' => 'user',
+            'content' => $message,
+            'tokens_input' => 0,
+            'tokens_output' => 0,
+        ]);
+        $userMessageId = $userMessage->id;
+
+        // CRITICAL: Release ALL resources before streaming
+        // This prevents blocking other users/admin while AI generates response
+        ReleaseResourcesForStreaming::releaseAll();
+
+        return new StreamedResponse(function () use ($userId, $message, $conversationId, $assistantSettings, $assistantId, $usesResponsesApi, $isDeepSeek, $provider, $userTokensBalance, $isFirstMessage, $userMessageId) {
             // Deshabilitar timeout de PHP para streaming largo (GPT-5 + Knowledge Base puede tardar varios minutos)
             set_time_limit(0);
 
@@ -289,29 +316,29 @@ class ChatController extends Controller
                     return;
                 }
 
-                // Check if first message (use doesntExist for better performance)
-                $isFirstMessage = $conversation->messages()->doesntExist();
-
-                // Save user message first
-                $userMessage = Message::create([
-                    'user_id' => $userId,
-                    'conversation_id' => $conversation->id,
-                    'provider' => $provider,
-                    'role' => 'user',
-                    'content' => $message,
-                    'tokens_input' => 0,
-                    'tokens_output' => 0,
-                ]);
-
+                // User message was already saved before releasing resources
                 // Send start event with user message ID
                 $this->sendSSE('start', [
-                    'user_message_id' => $userMessage->id,
+                    'user_message_id' => $userMessageId,
                 ]);
 
                 $fullContent = '';
                 $tokensInput = 0;
                 $tokensOutput = 0;
                 $messageId = null;
+
+                // RECONNECT to DB to fetch fresh models for AI service
+                DB::reconnect();
+
+                // Fetch fresh models
+                $user = \App\Models\User::find($userId);
+                $conversation = Conversation::find($conversationId);
+                $assistant = $assistantId ? Assistant::find($assistantId) : null;
+
+                if (!$user || !$conversation) {
+                    $this->sendSSE('error', ['message' => 'Datos no encontrados']);
+                    return;
+                }
 
                 if ($usesResponsesApi) {
                     // Use direct cURL streaming for Responses API (real-time) - OpenAI only
@@ -330,13 +357,28 @@ class ChatController extends Controller
                     // Choose service based on provider
                     $aiService = $isDeepSeek ? $this->deepSeekService : $this->openAIService;
 
+                    // The generator will use the DB briefly to build context, then HTTP calls don't need it
                     foreach ($aiService->sendMessageStreamed($user, $message, $conversation) as $chunk) {
                         if ($chunk['type'] === 'content') {
                             $fullContent .= $chunk['content'];
-                            $this->sendSSE('content', ['text' => $chunk['content']]);
+                            // Send chunk immediately with aggressive flush
+                            echo "event: content\n";
+                            echo "data: " . json_encode(['text' => $chunk['content']]) . "\n\n";
+                            // Padding to force buffer flush in Nginx/FastCGI
+                            echo ": " . str_repeat(' ', 512) . "\n\n";
+                            if (ob_get_level() > 0) {
+                                @ob_flush();
+                            }
+                            flush();
                         } elseif ($chunk['type'] === 'reasoning') {
                             // DeepSeek reasoner sends reasoning content
-                            $this->sendSSE('reasoning', ['text' => $chunk['content']]);
+                            echo "event: reasoning\n";
+                            echo "data: " . json_encode(['text' => $chunk['content']]) . "\n\n";
+                            echo ": " . str_repeat(' ', 512) . "\n\n";
+                            if (ob_get_level() > 0) {
+                                @ob_flush();
+                            }
+                            flush();
                         } elseif ($chunk['type'] === 'done') {
                             $tokensInput = $chunk['tokens_input'];
                             $tokensOutput = $chunk['tokens_output'];
@@ -348,10 +390,10 @@ class ChatController extends Controller
                     }
                 }
 
-                // Save assistant message
+                // Save assistant message (DB should still be connected or will auto-reconnect)
                 $assistantMessage = Message::create([
                     'user_id' => $userId,
-                    'conversation_id' => $conversation->id,
+                    'conversation_id' => $conversationId,
                     'provider' => $provider,
                     'role' => 'assistant',
                     'content' => $fullContent,
@@ -380,11 +422,11 @@ class ChatController extends Controller
                 ]);
                 $this->tokenService->deductTokens($user, $tokensInput, $tokensOutput, $provider);
 
-                // Calculate new balance locally (avoid unnecessary refresh query)
-                $newBalance = $user->tokens_balance - $totalTokensToDeduct;
-                if ($newBalance < 0) $newBalance = 0;
+                // Refresh user to get new balance
+                $user->refresh();
+                $newBalance = $user->tokens_balance;
 
-                // Only refresh conversation for title update
+                // Refresh conversation for title update
                 $conversation->refresh();
 
                 Log::info('Tokens deducted', [
@@ -399,8 +441,8 @@ class ChatController extends Controller
                     'tokens_output' => $tokensOutput,
                     'tokens_used' => $tokensInput + $tokensOutput,
                     'tokens_balance' => $newBalance,
-                    'provider' => $assistant ? ($assistant->provider ?? 'openai') : 'openai',
-                    'model' => $assistant ? $assistant->model : 'gpt-4o-mini',
+                    'provider' => $provider,
+                    'model' => $assistantSettings['model'] ?? 'gpt-4o-mini',
                     'conversation' => [
                         'id' => $conversation->id,
                         'title' => $conversation->title,
@@ -413,13 +455,16 @@ class ChatController extends Controller
             } catch (\Exception $e) {
                 Log::error('Streaming error', [
                     'user_id' => $userId,
-                    'conversation_id' => $conversation->id,
+                    'conversation_id' => $conversationId,
                     'error' => $e->getMessage(),
                 ]);
 
-                // Delete user message on error
-                if (isset($userMessage)) {
-                    $userMessage->delete();
+                // Try to delete user message on error
+                try {
+                    DB::reconnect();
+                    Message::where('id', $userMessageId)->delete();
+                } catch (\Throwable $deleteError) {
+                    // Ignore delete errors
                 }
 
                 $this->sendSSE('error', [
