@@ -748,8 +748,8 @@ function getStatusText(status) {
               </div>
               <div class="flex items-center gap-2">
                 <span :class="['text-xs px-2 py-1 rounded',
-                  formData.system_prompt.length > 15000 ? 'bg-red-500/20 text-red-400' :
-                  formData.system_prompt.length > 8000 ? 'bg-yellow-500/20 text-yellow-400' :
+                  formData.system_prompt.length > 60000 ? 'bg-red-500/20 text-red-400' :
+                  formData.system_prompt.length > 30000 ? 'bg-yellow-500/20 text-yellow-400' :
                   'bg-green-500/20 text-green-400']">
                   {{ formData.system_prompt.length }} caracteres
                 </span>
@@ -1190,8 +1190,8 @@ function getStatusText(status) {
             {{ isDeepSeek ? 'DeepSeek' : 'OpenAI GPT' }}
           </span>
           <span :class="['text-xs px-2 py-1 rounded',
-            formData.system_prompt.length > 15000 ? 'bg-red-500/20 text-red-400' :
-            formData.system_prompt.length > 8000 ? 'bg-yellow-500/20 text-yellow-400' :
+            formData.system_prompt.length > 60000 ? 'bg-red-500/20 text-red-400' :
+            formData.system_prompt.length > 30000 ? 'bg-yellow-500/20 text-yellow-400' :
             'bg-green-500/20 text-green-400']">
             {{ formData.system_prompt.length }} caracteres
           </span>
