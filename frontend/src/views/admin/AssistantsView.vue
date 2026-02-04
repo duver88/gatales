@@ -66,6 +66,7 @@ const formData = ref({ ...defaultFormData })
 // Track which advanced section is expanded
 const showAdvanced = ref(false)
 const showPromptTips = ref(false)
+const showPromptFullscreen = ref(false)
 
 // Prompt templates
 const promptTemplates = {
@@ -745,33 +746,42 @@ function getStatusText(status) {
                 <h3 class="text-sm font-semibold text-gatales-text">Instrucciones del Sistema (System Prompt)</h3>
                 <p class="text-xs text-gatales-text-secondary mt-1">Define como debe comportarse y responder el asistente</p>
               </div>
-              <span :class="['text-xs px-2 py-1 rounded', formData.system_prompt.length > 4000 ? 'bg-red-500/20 text-red-400' : 'bg-gatales-input text-gatales-text-secondary']">
-                {{ formData.system_prompt.length }} caracteres
-              </span>
+              <div class="flex items-center gap-2">
+                <span :class="['text-xs px-2 py-1 rounded', formData.system_prompt.length > 4000 ? 'bg-red-500/20 text-red-400' : 'bg-gatales-input text-gatales-text-secondary']">
+                  {{ formData.system_prompt.length }} caracteres
+                </span>
+                <button
+                  type="button"
+                  @click="showPromptFullscreen = true"
+                  class="p-2 bg-gatales-input hover:bg-gatales-border rounded transition-colors text-gatales-text"
+                  title="Expandir a pantalla completa"
+                >
+                  <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4" />
+                  </svg>
+                </button>
+              </div>
             </div>
 
-            <!-- Tips Panel -->
-            <div class="mb-4 p-3 bg-blue-500/10 border border-blue-500/20 rounded-lg">
-              <button
-                type="button"
-                @click="showPromptTips = !showPromptTips"
-                class="flex items-center gap-2 text-sm font-medium text-blue-400 w-full"
-              >
-                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                </svg>
-                Tips para escribir buenas instrucciones
-                <svg :class="['w-4 h-4 ml-auto transition-transform', showPromptTips ? 'rotate-180' : '']" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
-                </svg>
-              </button>
-              <div v-if="showPromptTips" class="mt-3 text-xs text-blue-300/80 space-y-2">
-                <p><strong>1. Define el ROL claramente:</strong> "Eres un experto en X que ayuda a Y"</p>
-                <p><strong>2. Especifica el TONO:</strong> Profesional, amigable, formal, casual</p>
-                <p><strong>3. Da CONTEXTO:</strong> Que sabe el asistente, que no debe hacer</p>
-                <p><strong>4. Define el FORMATO:</strong> Como debe estructurar las respuestas</p>
-                <p><strong>5. Incluye EJEMPLOS:</strong> Muestra como deberia responder</p>
-                <p><strong>6. Establece LIMITES:</strong> Que temas evitar, que no responder</p>
+            <!-- Provider-specific tips -->
+            <div :class="['mb-4 p-3 rounded-lg border', isDeepSeek ? 'bg-blue-500/10 border-blue-500/20' : 'bg-green-500/10 border-green-500/20']">
+              <div class="flex items-center gap-2 mb-2">
+                <span :class="['text-xs font-medium px-2 py-0.5 rounded', isDeepSeek ? 'bg-blue-500/20 text-blue-400' : 'bg-green-500/20 text-green-400']">
+                  {{ isDeepSeek ? 'DeepSeek' : 'OpenAI GPT' }}
+                </span>
+                <span class="text-xs text-gatales-text-secondary">Tips para este modelo:</span>
+              </div>
+              <div v-if="isDeepSeek" class="text-xs text-blue-300/80 space-y-1">
+                <p>• DeepSeek responde bien a instrucciones <strong>directas y claras</strong></p>
+                <p>• Usa formato de <strong>lista numerada</strong> para instrucciones</p>
+                <p>• Especifica el <strong>idioma de respuesta</strong> explicitamente</p>
+                <p>• Evita instrucciones muy largas - se mas <strong>conciso</strong></p>
+              </div>
+              <div v-else class="text-xs text-green-300/80 space-y-1">
+                <p>• GPT entiende bien instrucciones <strong>detalladas y con contexto</strong></p>
+                <p>• Usa <strong>encabezados con ##</strong> para organizar secciones</p>
+                <p>• Puedes incluir <strong>ejemplos de conversacion</strong></p>
+                <p>• Funciona bien con instrucciones <strong>largas y especificas</strong></p>
               </div>
             </div>
 
@@ -779,99 +789,47 @@ function getStatusText(status) {
             <div class="mb-4">
               <label class="block text-xs font-medium text-gatales-text-secondary mb-2">Plantillas rapidas:</label>
               <div class="flex flex-wrap gap-2">
-                <button
-                  type="button"
-                  @click="applyPromptTemplate('guiones')"
-                  class="text-xs px-3 py-1.5 bg-gatales-input hover:bg-gatales-border rounded transition-colors text-gatales-text"
-                >
+                <button type="button" @click="applyPromptTemplate('guiones')" class="text-xs px-3 py-1.5 bg-gatales-input hover:bg-gatales-border rounded transition-colors text-gatales-text">
                   Guionista
                 </button>
-                <button
-                  type="button"
-                  @click="applyPromptTemplate('asistente')"
-                  class="text-xs px-3 py-1.5 bg-gatales-input hover:bg-gatales-border rounded transition-colors text-gatales-text"
-                >
+                <button type="button" @click="applyPromptTemplate('asistente')" class="text-xs px-3 py-1.5 bg-gatales-input hover:bg-gatales-border rounded transition-colors text-gatales-text">
                   Asistente General
                 </button>
-                <button
-                  type="button"
-                  @click="applyPromptTemplate('experto')"
-                  class="text-xs px-3 py-1.5 bg-gatales-input hover:bg-gatales-border rounded transition-colors text-gatales-text"
-                >
+                <button type="button" @click="applyPromptTemplate('experto')" class="text-xs px-3 py-1.5 bg-gatales-input hover:bg-gatales-border rounded transition-colors text-gatales-text">
                   Experto Tecnico
                 </button>
-                <button
-                  type="button"
-                  @click="applyPromptTemplate('creativo')"
-                  class="text-xs px-3 py-1.5 bg-gatales-input hover:bg-gatales-border rounded transition-colors text-gatales-text"
-                >
+                <button type="button" @click="applyPromptTemplate('creativo')" class="text-xs px-3 py-1.5 bg-gatales-input hover:bg-gatales-border rounded transition-colors text-gatales-text">
                   Escritor Creativo
                 </button>
               </div>
             </div>
 
-            <!-- Main Textarea -->
-            <textarea
-              v-model="formData.system_prompt"
-              rows="15"
-              class="input-field font-mono text-sm leading-relaxed"
-              required
-              placeholder="Escribe aqui las instrucciones para el asistente...
-
-EJEMPLO DE ESTRUCTURA:
-
-## ROL
-Eres un [tipo de experto] especializado en [area].
-
-## PERSONALIDAD
-- Tono: [amigable/profesional/casual]
-- Estilo: [directo/detallado/conciso]
-
-## INSTRUCCIONES
-1. Siempre [hacer algo]
-2. Nunca [evitar algo]
-3. Cuando el usuario pregunte X, responde Y
-
-## FORMATO DE RESPUESTA
-- Usa listas cuando sea apropiado
-- Incluye ejemplos practicos
-- Manten las respuestas [cortas/detalladas]
-
-## RESTRICCIONES
-- No hables de [temas prohibidos]
-- Si no sabes algo, admitelo"
-            ></textarea>
-
-            <!-- Structure suggestions -->
-            <div class="mt-3 p-3 bg-gatales-input rounded-lg">
-              <p class="text-xs font-medium text-gatales-text mb-2">Estructura sugerida para tus instrucciones:</p>
-              <div class="grid grid-cols-2 sm:grid-cols-3 gap-2 text-xs text-gatales-text-secondary">
-                <span class="flex items-center gap-1">
-                  <span class="w-2 h-2 rounded-full bg-green-500"></span>
-                  Rol/Identidad
-                </span>
-                <span class="flex items-center gap-1">
-                  <span class="w-2 h-2 rounded-full bg-blue-500"></span>
-                  Tono/Personalidad
-                </span>
-                <span class="flex items-center gap-1">
-                  <span class="w-2 h-2 rounded-full bg-yellow-500"></span>
-                  Instrucciones
-                </span>
-                <span class="flex items-center gap-1">
-                  <span class="w-2 h-2 rounded-full bg-purple-500"></span>
-                  Formato
-                </span>
-                <span class="flex items-center gap-1">
-                  <span class="w-2 h-2 rounded-full bg-orange-500"></span>
-                  Ejemplos
-                </span>
-                <span class="flex items-center gap-1">
-                  <span class="w-2 h-2 rounded-full bg-red-500"></span>
-                  Restricciones
-                </span>
-              </div>
+            <!-- Main Textarea (compact view) -->
+            <div class="relative">
+              <textarea
+                v-model="formData.system_prompt"
+                rows="8"
+                class="input-field font-mono text-sm leading-relaxed pr-10"
+                required
+                placeholder="Escribe aqui las instrucciones..."
+              ></textarea>
+              <button
+                type="button"
+                @click="showPromptFullscreen = true"
+                class="absolute top-2 right-2 p-1.5 bg-gatales-sidebar/80 hover:bg-gatales-border rounded text-gatales-text-secondary hover:text-gatales-text transition-colors"
+                title="Expandir"
+              >
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4" />
+                </svg>
+              </button>
             </div>
+            <p class="text-xs text-gatales-text-secondary mt-2">
+              <span class="text-gatales-accent cursor-pointer hover:underline" @click="showPromptFullscreen = true">
+                Click aqui o en el icono para expandir
+              </span>
+              y ver/editar las instrucciones completas
+            </p>
           </div>
 
           <!-- Welcome Message -->
@@ -1216,6 +1174,135 @@ Eres un [tipo de experto] especializado en [area].
         <div class="sticky bottom-0 bg-gatales-sidebar p-4 border-t border-gatales-border">
           <button @click="closeFilesModal" class="btn-secondary w-full">Cerrar</button>
         </div>
+      </div>
+    </div>
+
+    <!-- Fullscreen Prompt Editor Modal -->
+    <div v-if="showPromptFullscreen" class="fixed inset-0 z-[60] bg-gatales-bg flex flex-col">
+      <!-- Header -->
+      <div class="flex items-center justify-between p-4 border-b border-gatales-border bg-gatales-sidebar">
+        <div class="flex items-center gap-3">
+          <h2 class="text-lg font-semibold text-gatales-text">Editor de Instrucciones</h2>
+          <span :class="['text-xs px-2 py-1 rounded', isDeepSeek ? 'bg-blue-500/20 text-blue-400' : 'bg-green-500/20 text-green-400']">
+            {{ isDeepSeek ? 'DeepSeek' : 'OpenAI GPT' }}
+          </span>
+          <span :class="['text-xs px-2 py-1 rounded', formData.system_prompt.length > 4000 ? 'bg-red-500/20 text-red-400' : 'bg-gatales-input text-gatales-text-secondary']">
+            {{ formData.system_prompt.length }} caracteres
+          </span>
+        </div>
+        <button @click="showPromptFullscreen = false" class="p-2 hover:bg-gatales-input rounded transition-colors text-gatales-text">
+          <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+          </svg>
+        </button>
+      </div>
+
+      <!-- Content -->
+      <div class="flex-1 flex overflow-hidden">
+        <!-- Left: Editor -->
+        <div class="flex-1 flex flex-col p-4 overflow-hidden">
+          <textarea
+            v-model="formData.system_prompt"
+            class="flex-1 w-full bg-gatales-input border border-gatales-border rounded-lg p-4 text-gatales-text font-mono text-sm leading-relaxed resize-none focus:outline-none focus:ring-2 focus:ring-gatales-accent"
+            placeholder="Escribe aqui las instrucciones para el asistente..."
+          ></textarea>
+        </div>
+
+        <!-- Right: Tips & Templates -->
+        <div class="w-80 border-l border-gatales-border bg-gatales-sidebar overflow-y-auto p-4 space-y-4">
+          <!-- Provider Tips -->
+          <div>
+            <h3 class="text-sm font-semibold text-gatales-text mb-3 flex items-center gap-2">
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
+              </svg>
+              Tips para {{ isDeepSeek ? 'DeepSeek' : 'GPT' }}
+            </h3>
+            <div v-if="isDeepSeek" class="text-xs text-gatales-text-secondary space-y-2">
+              <p>• Usa instrucciones <strong class="text-blue-400">directas y claras</strong></p>
+              <p>• Formato de <strong class="text-blue-400">lista numerada</strong> funciona mejor</p>
+              <p>• Especifica <strong class="text-blue-400">"Responde siempre en español"</strong></p>
+              <p>• Evita prompts muy largos, se <strong class="text-blue-400">conciso</strong></p>
+              <p>• Usa <strong class="text-blue-400">ejemplos cortos</strong> si necesitas</p>
+            </div>
+            <div v-else class="text-xs text-gatales-text-secondary space-y-2">
+              <p>• Usa <strong class="text-green-400">## Encabezados</strong> para organizar</p>
+              <p>• Puedes ser <strong class="text-green-400">detallado y especifico</strong></p>
+              <p>• Incluye <strong class="text-green-400">ejemplos de conversacion</strong></p>
+              <p>• Define <strong class="text-green-400">personalidad y tono</strong> claramente</p>
+              <p>• Usa <strong class="text-green-400">markdown</strong> para formato</p>
+            </div>
+          </div>
+
+          <!-- Structure Guide -->
+          <div>
+            <h3 class="text-sm font-semibold text-gatales-text mb-3">Estructura Recomendada</h3>
+            <div class="space-y-2 text-xs">
+              <div class="flex items-center gap-2 text-gatales-text-secondary">
+                <span class="w-3 h-3 rounded-full bg-green-500 shrink-0"></span>
+                <span><strong>## ROL</strong> - Quien es el asistente</span>
+              </div>
+              <div class="flex items-center gap-2 text-gatales-text-secondary">
+                <span class="w-3 h-3 rounded-full bg-blue-500 shrink-0"></span>
+                <span><strong>## PERSONALIDAD</strong> - Tono y estilo</span>
+              </div>
+              <div class="flex items-center gap-2 text-gatales-text-secondary">
+                <span class="w-3 h-3 rounded-full bg-yellow-500 shrink-0"></span>
+                <span><strong>## INSTRUCCIONES</strong> - Que debe hacer</span>
+              </div>
+              <div class="flex items-center gap-2 text-gatales-text-secondary">
+                <span class="w-3 h-3 rounded-full bg-purple-500 shrink-0"></span>
+                <span><strong>## FORMATO</strong> - Como responder</span>
+              </div>
+              <div class="flex items-center gap-2 text-gatales-text-secondary">
+                <span class="w-3 h-3 rounded-full bg-orange-500 shrink-0"></span>
+                <span><strong>## EJEMPLOS</strong> - Casos de uso</span>
+              </div>
+              <div class="flex items-center gap-2 text-gatales-text-secondary">
+                <span class="w-3 h-3 rounded-full bg-red-500 shrink-0"></span>
+                <span><strong>## RESTRICCIONES</strong> - Que evitar</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Templates -->
+          <div>
+            <h3 class="text-sm font-semibold text-gatales-text mb-3">Plantillas</h3>
+            <div class="space-y-2">
+              <button type="button" @click="applyPromptTemplate('guiones')" class="w-full text-left text-xs px-3 py-2 bg-gatales-input hover:bg-gatales-border rounded transition-colors text-gatales-text">
+                📝 Guionista de Videos
+              </button>
+              <button type="button" @click="applyPromptTemplate('asistente')" class="w-full text-left text-xs px-3 py-2 bg-gatales-input hover:bg-gatales-border rounded transition-colors text-gatales-text">
+                🤖 Asistente General
+              </button>
+              <button type="button" @click="applyPromptTemplate('experto')" class="w-full text-left text-xs px-3 py-2 bg-gatales-input hover:bg-gatales-border rounded transition-colors text-gatales-text">
+                💻 Experto Tecnico
+              </button>
+              <button type="button" @click="applyPromptTemplate('creativo')" class="w-full text-left text-xs px-3 py-2 bg-gatales-input hover:bg-gatales-border rounded transition-colors text-gatales-text">
+                ✨ Escritor Creativo
+              </button>
+            </div>
+          </div>
+
+          <!-- Quick Insert -->
+          <div>
+            <h3 class="text-sm font-semibold text-gatales-text mb-3">Insertar Rapido</h3>
+            <div class="flex flex-wrap gap-1">
+              <button type="button" @click="formData.system_prompt += '\n\n## ROL\n'" class="text-xs px-2 py-1 bg-green-500/20 text-green-400 rounded hover:bg-green-500/30">## ROL</button>
+              <button type="button" @click="formData.system_prompt += '\n\n## PERSONALIDAD\n'" class="text-xs px-2 py-1 bg-blue-500/20 text-blue-400 rounded hover:bg-blue-500/30">## PERSONALIDAD</button>
+              <button type="button" @click="formData.system_prompt += '\n\n## INSTRUCCIONES\n'" class="text-xs px-2 py-1 bg-yellow-500/20 text-yellow-400 rounded hover:bg-yellow-500/30">## INSTRUCCIONES</button>
+              <button type="button" @click="formData.system_prompt += '\n\n## FORMATO\n'" class="text-xs px-2 py-1 bg-purple-500/20 text-purple-400 rounded hover:bg-purple-500/30">## FORMATO</button>
+              <button type="button" @click="formData.system_prompt += '\n\n## RESTRICCIONES\n'" class="text-xs px-2 py-1 bg-red-500/20 text-red-400 rounded hover:bg-red-500/30">## RESTRICCIONES</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Footer -->
+      <div class="p-4 border-t border-gatales-border bg-gatales-sidebar flex justify-end gap-3">
+        <button type="button" @click="showPromptFullscreen = false" class="btn-primary">
+          Listo
+        </button>
       </div>
     </div>
   </div>
