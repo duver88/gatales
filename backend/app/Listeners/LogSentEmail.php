@@ -18,18 +18,36 @@ class LogSentEmail
     {
         try {
             $message = $event->message;
+            $subject = $message->getSubject() ?? 'Sin asunto';
+
+            // Skip supervision emails to prevent infinite loop
+            if (str_starts_with($subject, '[SUPERVISION]')) {
+                return;
+            }
 
             // Get email info from the message
             $to = $message->getTo();
-            $toEmail = array_keys($to)[0] ?? null;
-            $toName = $to[$toEmail] ?? null;
-            $subject = $message->getSubject() ?? 'Sin asunto';
+
+            // Handle both array and Address object formats
+            $toEmail = null;
+            $toName = null;
+
+            if (is_array($to) && !empty($to)) {
+                $firstTo = reset($to);
+                if (is_object($firstTo) && method_exists($firstTo, 'getAddress')) {
+                    $toEmail = $firstTo->getAddress();
+                    $toName = $firstTo->getName();
+                } else {
+                    $toEmail = array_keys($to)[0] ?? null;
+                    $toName = is_string($to[$toEmail] ?? null) ? $to[$toEmail] : null;
+                }
+            }
 
             if (!$toEmail) {
                 return;
             }
 
-            // Determine email type from subject or headers
+            // Determine email type from subject
             $type = $this->determineEmailType($subject);
 
             // Find user by email if possible
@@ -44,7 +62,7 @@ class LogSentEmail
                 }
             }
 
-            // Log the email
+            // Log the email to database
             EmailLog::create([
                 'user_id' => $user?->id,
                 'to_email' => $toEmail,
@@ -57,12 +75,15 @@ class LogSentEmail
                 'sent_at' => now(),
             ]);
 
+            Log::info('Email logged successfully', ['to' => $toEmail, 'subject' => $subject]);
+
             // Send copy to supervision email if configured
             $this->sendSupervisionCopy($event, $toEmail, $subject);
 
         } catch (\Exception $e) {
             Log::error('Error logging sent email', [
                 'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
             ]);
         }
     }
@@ -122,7 +143,7 @@ class LogSentEmail
             ";
 
             // Send supervision copy
-            Mail::raw($htmlBody ? '' : ($textBody ?? 'Email enviado'), function ($msg) use ($supervisionEmail, $subject, $originalTo, $supervisionInfo, $htmlBody, $textBody) {
+            Mail::raw($htmlBody ? '' : ($textBody ?? 'Email enviado'), function ($msg) use ($supervisionEmail, $subject, $originalTo, $supervisionInfo, $htmlBody) {
                 $msg->to($supervisionEmail)
                     ->subject("[SUPERVISION] {$subject} (para: {$originalTo})");
 
