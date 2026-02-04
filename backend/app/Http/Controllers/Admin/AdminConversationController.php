@@ -420,6 +420,15 @@ class AdminConversationController extends Controller
             flush();
 
             try {
+                // Reload conversation inside closure (resources were released before streaming)
+                $conversation = Conversation::find($conversationId);
+                if (!$conversation) {
+                    $this->sendSSE('error', ['message' => 'Conversación no encontrada']);
+                    return;
+                }
+
+                $assistant = Assistant::find($assistantId);
+
                 $isFirstMessage = $conversation->messages()->count() === 0;
 
                 // Save user message
