@@ -82,10 +82,18 @@ class WebhookController extends Controller
                     'password_token_expires_at' => Carbon::now()->addHours(48),
                 ]);
 
-                // Send set password email (with copy to admin)
-                Mail::to($user->email)
-                    ->bcc(config('mail.admin_copy', 'duver20000@gmail.com'))
-                    ->queue(new SetPasswordMail($user, $passwordToken));
+                // Send set password email (with copy to admin) - non-blocking
+                try {
+                    Mail::to($user->email)
+                        ->bcc(config('mail.admin_copy', 'duver20000@gmail.com'))
+                        ->send(new SetPasswordMail($user, $passwordToken));
+                } catch (\Exception $mailError) {
+                    \Log::warning('Failed to send set password email', [
+                        'user_id' => $user->id,
+                        'email' => $user->email,
+                        'error' => $mailError->getMessage(),
+                    ]);
+                }
             }
 
             // Cancel any existing active subscriptions
@@ -168,10 +176,18 @@ class WebhookController extends Controller
 
             DB::commit();
 
-            // Send cancellation notification email
-            Mail::to($user->email)
-                ->bcc(config('mail.admin_copy', 'duver20000@gmail.com'))
-                ->queue(new SubscriptionCancelledMail($user));
+            // Send cancellation notification email - non-blocking
+            try {
+                Mail::to($user->email)
+                    ->bcc(config('mail.admin_copy', 'duver20000@gmail.com'))
+                    ->send(new SubscriptionCancelledMail($user));
+            } catch (\Exception $mailError) {
+                \Log::warning('Failed to send cancellation email', [
+                    'user_id' => $user->id,
+                    'email' => $user->email,
+                    'error' => $mailError->getMessage(),
+                ]);
+            }
 
             $log->markAsProcessed();
 
@@ -239,10 +255,18 @@ class WebhookController extends Controller
 
             DB::commit();
 
-            // Send renewal notification email
-            Mail::to($user->email)
-                ->bcc(config('mail.admin_copy', 'duver20000@gmail.com'))
-                ->queue(new SubscriptionRenewedMail($user, $user->tokens_balance));
+            // Send renewal notification email - non-blocking
+            try {
+                Mail::to($user->email)
+                    ->bcc(config('mail.admin_copy', 'duver20000@gmail.com'))
+                    ->send(new SubscriptionRenewedMail($user, $user->tokens_balance));
+            } catch (\Exception $mailError) {
+                \Log::warning('Failed to send renewal email', [
+                    'user_id' => $user->id,
+                    'email' => $user->email,
+                    'error' => $mailError->getMessage(),
+                ]);
+            }
 
             $log->markAsProcessed();
 
