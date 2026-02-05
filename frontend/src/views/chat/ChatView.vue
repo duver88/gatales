@@ -128,6 +128,21 @@ onMounted(async () => {
     scrollToBottom()
   } catch (e) {
     console.error('Error loading chat:', e)
+
+    // If 403 error, user might be inactive - redirect to account-inactive
+    if (e.response?.status === 403) {
+      const errorData = e.response?.data
+      if (errorData?.status === 'inactive') {
+        router.push('/account-inactive')
+        return
+      }
+    }
+
+    // If 401 error, redirect to login
+    if (e.response?.status === 401) {
+      router.push('/login')
+      return
+    }
   }
 })
 

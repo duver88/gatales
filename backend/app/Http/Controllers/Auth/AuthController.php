@@ -230,6 +230,12 @@ class AuthController extends Controller
     public function me(Request $request): JsonResponse
     {
         $user = $request->user();
+
+        // If refresh param is passed, clear plan cache to get fresh data
+        if ($request->boolean('refresh')) {
+            $user->clearPlanCache();
+        }
+
         $user->load('activeSubscription.plan');
 
         return response()->json([

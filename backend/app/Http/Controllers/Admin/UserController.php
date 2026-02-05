@@ -291,6 +291,9 @@ class UserController extends Controller
         // Ensure user is active
         $user->update(['status' => 'active']);
 
+        // Clear plan cache so hasFreePlan() returns updated value
+        $user->clearPlanCache();
+
         return response()->json([
             'success' => true,
             'message' => "Plan cambiado a {$plan->name}",

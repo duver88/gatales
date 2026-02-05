@@ -89,7 +89,7 @@ export const useAuthStore = defineStore('auth', () => {
     }
   }
 
-  async function fetchUser(force = false) {
+  async function fetchUser(force = false, refresh = false) {
     if (!token.value) return null
 
     // Return cached user if available and not forcing refresh
@@ -106,7 +106,8 @@ export const useAuthStore = defineStore('auth', () => {
     isLoading.value = true
     fetchUserPromise = (async () => {
       try {
-        const response = await authApi.me()
+        // Pass refresh param to clear backend cache when user clicks "Ya actualicé mi plan"
+        const response = await authApi.me(refresh)
         user.value = response.data.user
         localStorage.setItem('user', JSON.stringify(response.data.user))
         lastFetchTime = Date.now()

@@ -14,7 +14,8 @@ const planName = computed(() => authStore.user?.current_plan || 'Plan Gratuito')
 onMounted(async () => {
   try {
     // Re-fetch user data from backend to check if plan was updated
-    await authStore.fetchUser()
+    // force=true to bypass local cache, refresh=true to clear backend cache
+    await authStore.fetchUser(true, true)
     if (!authStore.hasFreePlan) {
       // Plan was upgraded, redirect to chat
       router.replace('/chat')
@@ -30,7 +31,8 @@ onMounted(async () => {
 async function handleRefreshPlan() {
   checking.value = true
   try {
-    await authStore.fetchUser()
+    // force=true to bypass local cache, refresh=true to clear backend cache
+    await authStore.fetchUser(true, true)
     if (!authStore.hasFreePlan) {
       router.replace('/chat')
     }
