@@ -17,14 +17,6 @@ const percentage = computed(() => {
   return Math.min(Math.round((props.balance / props.monthly) * 100), 100)
 })
 
-const formattedBalance = computed(() => {
-  return props.balance.toLocaleString('es-ES')
-})
-
-const formattedMonthly = computed(() => {
-  return props.monthly.toLocaleString('es-ES')
-})
-
 // Status based on percentage
 const status = computed(() => {
   if (percentage.value > 60) return 'healthy'
@@ -109,7 +101,7 @@ const statusConfig = computed(() => {
 
     <!-- Info section -->
     <div class="flex flex-col min-w-0">
-      <!-- Top row: percentage and status -->
+      <!-- Percentage and status -->
       <div class="flex items-center gap-2">
         <span :class="['text-base font-bold tabular-nums', statusConfig.text]">
           {{ percentage }}%
@@ -118,11 +110,6 @@ const statusConfig = computed(() => {
           {{ statusConfig.label }}
         </span>
       </div>
-
-      <!-- Bottom row: tokens count -->
-      <span class="text-[11px] text-gatales-text-secondary truncate">
-        {{ formattedBalance }} / {{ formattedMonthly }}
-      </span>
     </div>
 
     <!-- Progress bar -->
