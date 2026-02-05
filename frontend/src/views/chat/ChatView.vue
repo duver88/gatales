@@ -92,7 +92,19 @@ onMounted(async () => {
   try {
     // Refresh user data to get latest subscription/tokens info
     // This ensures the UI shows correct data after admin changes
-    authStore.fetchUser(true)
+    await authStore.fetchUser(true)
+
+    // Check if user account is inactive and redirect
+    if (!authStore.isActive) {
+      router.push('/account-inactive')
+      return
+    }
+
+    // Check if user has free plan
+    if (authStore.hasFreePlan) {
+      router.push('/free-plan')
+      return
+    }
 
     // Fetch conversations and assistants in PARALLEL for faster load
     const [conversationsResult] = await Promise.all([
