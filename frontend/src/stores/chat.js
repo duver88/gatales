@@ -90,6 +90,13 @@ export const useChatStore = defineStore('chat', () => {
 
       messages.value = response.data.messages
 
+      // Set lastUserMessageContent for regenerate functionality
+      // Find the last user message in the loaded messages
+      const lastUserMsg = [...response.data.messages].reverse().find(m => m.role === 'user')
+      if (lastUserMsg) {
+        lastUserMessageContent.value = lastUserMsg.content
+      }
+
       // Store assistant info
       if (response.data.assistant) {
         currentAssistant.value = response.data.assistant
