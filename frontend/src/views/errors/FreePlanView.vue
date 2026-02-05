@@ -34,7 +34,8 @@ async function handleRefreshPlan() {
     // force=true to bypass local cache, refresh=true to clear backend cache
     await authStore.fetchUser(true, true)
     if (!authStore.hasFreePlan) {
-      router.replace('/chat')
+      // Full page reload to ensure all components get fresh data
+      window.location.href = '/chat'
     }
   } catch (e) {
     // ignore
