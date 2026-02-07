@@ -481,6 +481,181 @@ class ChatController extends Controller
     }
 
     /**
+     * Regenerate the last assistant response (streaming)
+     * Deletes the last assistant message and generates a new one using the last user message
+     */
+    public function conversationRegenerate(Request $request, Conversation $conversation): StreamedResponse
+    {
+        $user = $request->user();
+
+        if (!$user) {
+            return $this->streamError('No autenticado', 401);
+        }
+
+        $userId = (int) $user->id;
+
+        if ($conversation->user_id !== $userId) {
+            return $this->streamError('No autorizado', 403);
+        }
+
+        if ($user->hasFreePlan()) {
+            return $this->streamError('free_plan', 403);
+        }
+
+        if (!$this->tokenService->hasEnoughTokens($user, 100)) {
+            return $this->streamError('tokens_exhausted', 402);
+        }
+
+        // Get last user message
+        $lastUserMessage = $conversation->messages()
+            ->where('role', 'user')
+            ->orderBy('created_at', 'desc')
+            ->first();
+
+        if (!$lastUserMessage) {
+            return $this->streamError('No hay mensaje para regenerar');
+        }
+
+        $message = $lastUserMessage->content;
+
+        // Delete the last assistant message (the one we're regenerating)
+        $lastAssistantMessage = $conversation->messages()
+            ->where('role', 'assistant')
+            ->orderBy('created_at', 'desc')
+            ->first();
+
+        if ($lastAssistantMessage) {
+            $lastAssistantMessage->delete();
+        }
+
+        $assistant = $conversation->assistant ?? $user->getAssistant();
+        $isDeepSeek = $assistant && $assistant->isDeepSeek();
+        $provider = $isDeepSeek ? 'deepseek' : 'openai';
+        $usesResponsesApi = !$isDeepSeek && $assistant && $assistant->usesResponsesApi();
+
+        $conversationId = $conversation->id;
+        $assistantSettings = $assistant ? $assistant->toSettingsArray() : null;
+        $assistantId = $assistant?->id;
+
+        ReleaseResourcesForStreaming::releaseAll();
+
+        return new StreamedResponse(function () use ($userId, $message, $conversationId, $assistantSettings, $assistantId, $usesResponsesApi, $isDeepSeek, $provider) {
+            set_time_limit(0);
+            @ini_set('output_buffering', 'off');
+            @ini_set('zlib.output_compression', false);
+            @ini_set('implicit_flush', true);
+            while (ob_get_level() > 0) {
+                ob_end_flush();
+            }
+            ob_implicit_flush(true);
+            echo ": " . str_repeat(' ', 4096) . "\n\n";
+            flush();
+
+            try {
+                DB::reconnect();
+                $user = \App\Models\User::find($userId);
+                $conversation = Conversation::find($conversationId);
+                $assistant = $assistantId ? Assistant::find($assistantId) : null;
+
+                if (!$user || !$conversation) {
+                    $this->sendSSE('error', ['message' => 'Datos no encontrados']);
+                    return;
+                }
+
+                $this->sendSSE('start', []);
+
+                $fullContent = '';
+                $tokensInput = 0;
+                $tokensOutput = 0;
+                $messageId = null;
+
+                if ($usesResponsesApi) {
+                    $this->streamWithResponsesApi(
+                        $user, $message, $assistant, $conversation,
+                        $fullContent, $tokensInput, $tokensOutput, $messageId
+                    );
+                } else {
+                    $aiService = $isDeepSeek ? $this->deepSeekService : $this->openAIService;
+                    foreach ($aiService->sendMessageStreamed($user, $message, $conversation) as $chunk) {
+                        if ($chunk['type'] === 'content') {
+                            $fullContent .= $chunk['content'];
+                            echo "event: content\n";
+                            echo "data: " . json_encode(['text' => $chunk['content']], JSON_UNESCAPED_UNICODE) . "\n\n";
+                            echo ": " . str_repeat(' ', 512) . "\n\n";
+                            if (ob_get_level() > 0) { @ob_flush(); }
+                            flush();
+                        } elseif ($chunk['type'] === 'reasoning') {
+                            echo "event: reasoning\n";
+                            echo "data: " . json_encode(['text' => $chunk['content']], JSON_UNESCAPED_UNICODE) . "\n\n";
+                            echo ": " . str_repeat(' ', 512) . "\n\n";
+                            if (ob_get_level() > 0) { @ob_flush(); }
+                            flush();
+                        } elseif ($chunk['type'] === 'done') {
+                            $tokensInput = $chunk['tokens_input'];
+                            $tokensOutput = $chunk['tokens_output'];
+                            $messageId = $chunk['message_id'];
+                            if (isset($chunk['full_content'])) {
+                                $fullContent = $chunk['full_content'];
+                            }
+                        }
+                    }
+                }
+
+                // Save new assistant message
+                $assistantMessage = Message::create([
+                    'user_id' => $userId,
+                    'conversation_id' => $conversationId,
+                    'provider' => $provider,
+                    'role' => 'assistant',
+                    'content' => $fullContent,
+                    'tokens_input' => $tokensInput,
+                    'tokens_output' => $tokensOutput,
+                    'openai_message_id' => $messageId,
+                ]);
+
+                $conversation->updateTokenStats($tokensInput, $tokensOutput);
+
+                $this->tokenService->deductTokens($user, $tokensInput, $tokensOutput, $provider);
+                $user->refresh();
+                $conversation->refresh();
+
+                $this->sendSSE('done', [
+                    'message_id' => $assistantMessage->id,
+                    'tokens_input' => $tokensInput,
+                    'tokens_output' => $tokensOutput,
+                    'tokens_used' => $tokensInput + $tokensOutput,
+                    'tokens_balance' => $user->tokens_balance,
+                    'provider' => $provider,
+                    'model' => $assistantSettings['model'] ?? 'gpt-4o-mini',
+                    'conversation' => [
+                        'id' => $conversation->id,
+                        'title' => $conversation->title,
+                        'total_tokens' => $conversation->total_tokens,
+                        'total_tokens_input' => $conversation->total_tokens_input,
+                        'total_tokens_output' => $conversation->total_tokens_output,
+                    ],
+                ]);
+
+            } catch (\Exception $e) {
+                Log::error('Regenerate streaming error', [
+                    'user_id' => $userId,
+                    'conversation_id' => $conversationId,
+                    'error' => $e->getMessage(),
+                ]);
+                $this->sendSSE('error', [
+                    'message' => 'Error al regenerar la respuesta',
+                    'error' => config('app.debug') ? $e->getMessage() : null,
+                ]);
+            }
+        }, 200, [
+            'Content-Type' => 'text/event-stream',
+            'Cache-Control' => 'no-cache, no-store, must-revalidate',
+            'Connection' => 'keep-alive',
+            'X-Accel-Buffering' => 'no',
+        ]);
+    }
+
+    /**
      * Stream response using Responses API with direct cURL (real-time streaming)
      */
     private function streamWithResponsesApi(

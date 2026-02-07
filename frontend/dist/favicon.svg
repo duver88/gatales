@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <rect width="100" height="100" rx="20" fill="#00be88"/>
+  <!-- Cat head -->
+  <path d="M50 20 L28 38 L28 58 Q28 75 50 80 Q72 75 72 58 L72 38 Z" fill="white"/>
+  <!-- Left ear -->
+  <path d="M28 38 L18 15 L38 33 Z" fill="white"/>
+  <!-- Right ear -->
+  <path d="M72 38 L82 15 L62 33 Z" fill="white"/>
+</svg>

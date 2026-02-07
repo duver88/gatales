@@ -78,6 +78,7 @@ Route::middleware(['auth:sanctum', 'user.active'])->group(function () {
         Route::get('/{conversation}/messages', [ChatController::class, 'conversationMessages']);
         Route::post('/{conversation}/messages', [ChatController::class, 'conversationSend']);
         Route::post('/{conversation}/messages/stream', [ChatController::class, 'conversationSendStream']);
+        Route::post('/{conversation}/messages/regenerate', [ChatController::class, 'conversationRegenerate']);
         Route::delete('/{conversation}/messages', [ChatController::class, 'conversationClear']);
     });
 

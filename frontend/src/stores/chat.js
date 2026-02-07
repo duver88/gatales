@@ -207,7 +207,7 @@ export const useChatStore = defineStore('chat', () => {
   }
 
   /**
-   * Retry/regenerate the last failed or stopped response
+   * Retry a failed or stopped response (re-sends the user message)
    */
   async function retryLastMessage() {
     if (!lastUserMessageContent.value || isSending.value) return
@@ -232,6 +232,116 @@ export const useChatStore = defineStore('chat', () => {
 
     // Resend the message
     return sendMessageStream(lastUserMessageContent.value, currentConversationId.value)
+  }
+
+  /**
+   * Regenerate the last assistant response without duplicating the user message
+   */
+  async function regenerateResponse() {
+    if (isSending.value || !currentConversationId.value) return
+
+    isSending.value = true
+    isThinking.value = true
+    isStreaming.value = false
+    streamingContent.value = ''
+    error.value = null
+
+    // Remove the last assistant message from UI (backend will also delete it)
+    const lastAssistantIdx = messages.value.length - 1
+    if (lastAssistantIdx >= 0 && messages.value[lastAssistantIdx].role === 'assistant') {
+      messages.value.splice(lastAssistantIdx, 1)
+    }
+
+    // Add placeholder for streaming assistant message
+    const assistantMessageId = generateTempId('regen')
+    const assistantMessage = {
+      id: assistantMessageId,
+      role: 'assistant',
+      content: '',
+      created_at: new Date().toISOString(),
+      isStreaming: true,
+      isThinking: true,
+    }
+    messages.value.push(assistantMessage)
+
+    await nextTick()
+
+    return new Promise((resolve, reject) => {
+      chatApi.regenerateStream(
+        currentConversationId.value,
+        // onChunk
+        (chunk) => {
+          if (!chunk || chunk.length === 0) return
+          if (isThinking.value) {
+            isThinking.value = false
+            isStreaming.value = true
+          }
+          streamingContent.value += chunk
+          const msgIndex = messages.value.findIndex(m => m.id === assistantMessageId)
+          if (msgIndex !== -1) {
+            messages.value[msgIndex] = {
+              ...messages.value[msgIndex],
+              content: streamingContent.value,
+              isThinking: false,
+              isStreaming: true,
+            }
+          }
+        },
+        // onDone
+        (data) => {
+          isThinking.value = false
+          isStreaming.value = false
+          isSending.value = false
+
+          const msgIndex = messages.value.findIndex(m => m.id === assistantMessageId)
+          if (msgIndex !== -1) {
+            messages.value[msgIndex].id = data.message_id
+            messages.value[msgIndex].isStreaming = false
+            messages.value[msgIndex].isThinking = false
+          }
+
+          if (data.conversation) {
+            currentConversation.value = data.conversation
+          }
+
+          if (data.tokens_input !== undefined && data.tokens_output !== undefined) {
+            const cost = calculateCost(data.model, data.tokens_input, data.tokens_output)
+            lastMessageTokens.value = {
+              input: data.tokens_input,
+              output: data.tokens_output,
+              model: data.model,
+              cost: cost
+            }
+          }
+
+          const authStore = useAuthStore()
+          authStore.updateTokensBalance(data.tokens_balance)
+
+          resolve(data)
+        },
+        // onError
+        (errorData) => {
+          isThinking.value = false
+          isStreaming.value = false
+          isSending.value = false
+
+          const errorMsg = errorData.message || 'Error al regenerar la respuesta'
+          error.value = errorMsg
+
+          const msgIndex = messages.value.findIndex(m => m.id === assistantMessageId)
+          if (msgIndex !== -1) {
+            messages.value[msgIndex].isStreaming = false
+            messages.value[msgIndex].isThinking = false
+            messages.value[msgIndex].isFailed = true
+            messages.value[msgIndex].errorMessage = errorMsg
+            messages.value[msgIndex].content = streamingContent.value || ''
+          }
+          lastFailedMessageId.value = assistantMessageId
+
+          reject(new Error(errorMsg))
+        }
+      )
+    })
   }
 
   /**
@@ -548,6 +658,7 @@ export const useChatStore = defineStore('chat', () => {
     sendMessageStream,
     stopStreaming,
     retryLastMessage,
+    regenerateResponse,
     canRetry,
     clearHistory,
     clearError,

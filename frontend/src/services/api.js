@@ -242,6 +242,121 @@ export const chatApi = {
       activeStreamController = null
     }
   },
+
+  // Regenerate last assistant response (SSE streaming)
+  regenerateStream: async (conversationId, onChunk, onDone, onError) => {
+    const token = localStorage.getItem('auth_token')
+    const baseURL = import.meta.env.VITE_API_URL
+    let receivedDone = false
+    let wasCancelled = false
+
+    const controller = new AbortController()
+    activeStreamController = controller
+    const timeoutId = setTimeout(() => controller.abort(), 900000)
+
+    try {
+      const response = await fetch(`${baseURL}/conversations/${conversationId}/messages/regenerate`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'text/event-stream',
+          'Authorization': `Bearer ${token}`,
+        },
+        body: JSON.stringify({}),
+        signal: controller.signal,
+      })
+
+      if (!response.ok) {
+        const errorText = await response.text()
+        throw new Error(errorText || `HTTP ${response.status}`)
+      }
+
+      const reader = response.body.getReader()
+      const decoder = new TextDecoder()
+      let buffer = ''
+      let currentEvent = null
+
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+
+        buffer += decoder.decode(value, { stream: true })
+
+        const lines = buffer.split('\n')
+        buffer = lines.pop() || ''
+
+        for (const line of lines) {
+          if (!line || line.startsWith(':')) continue
+
+          if (line.startsWith('event: ')) {
+            currentEvent = line.slice(7).trim()
+          } else if (line.startsWith('data: ') && currentEvent) {
+            try {
+              const data = JSON.parse(line.slice(6))
+              if (currentEvent === 'content') {
+                if (data.text != null && data.text !== '') {
+                  onChunk(data.text)
+                }
+              } else if (currentEvent === 'done') {
+                receivedDone = true
+                onDone(data)
+              } else if (currentEvent === 'error') {
+                receivedDone = true
+                onError(data)
+              }
+            } catch (e) {
+              console.error('Error parsing SSE data:', e)
+            }
+            currentEvent = null
+          }
+        }
+      }
+
+      const remaining = decoder.decode()
+      if (remaining) buffer += remaining
+
+      if (buffer.trim()) {
+        const finalLines = buffer.split('\n')
+        for (const line of finalLines) {
+          if (line.startsWith('event: ')) {
+            currentEvent = line.slice(7).trim()
+          } else if (line.startsWith('data: ') && currentEvent) {
+            try {
+              const data = JSON.parse(line.slice(6))
+              if (currentEvent === 'content' && data.text != null && data.text !== '') {
+                onChunk(data.text)
+              } else if (currentEvent === 'done') {
+                receivedDone = true
+                onDone(data)
+              } else if (currentEvent === 'error') {
+                receivedDone = true
+                onError(data)
+              }
+            } catch (e) { /* ignore */ }
+            currentEvent = null
+          }
+        }
+      }
+
+      if (!receivedDone && !wasCancelled) {
+        onDone({ message_id: null, tokens_used: 0, tokens_balance: null, conversation: null })
+      }
+    } catch (error) {
+      if (error.name === 'AbortError') {
+        if (activeStreamController === null) {
+          wasCancelled = true
+          onDone({ message_id: null, tokens_used: 0, tokens_balance: null, conversation: null, cancelled: true })
+        } else {
+          onError({ message: 'La solicitud tardó demasiado. Por favor, intenta de nuevo.' })
+        }
+      } else {
+        onError({ message: error.message })
+      }
+    } finally {
+      clearTimeout(timeoutId)
+      activeStreamController = null
+    }
+  },
 }
 
 // Admin Auth API

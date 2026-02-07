@@ -310,6 +310,15 @@ async function handleRetryMessage() {
   }
 }
 
+async function handleRegenerateMessage() {
+  try {
+    await chatStore.regenerateResponse()
+    scrollToBottom()
+  } catch (e) {
+    console.error('Error regenerating message:', e)
+  }
+}
+
 async function handleResendMessage(message) {
   try {
     // Remove the user message that failed to get a response
@@ -678,7 +687,7 @@ async function handleDeleteAvatar() {
             :is-last-message="index === chatStore.messages.length - 1"
             :is-generating="chatStore.isSending || chatStore.isStreaming || chatStore.isThinking"
             @retry="handleRetryMessage"
-            @regenerate="handleRetryMessage"
+            @regenerate="handleRegenerateMessage"
             @resend="handleResendMessage(message)"
           />
 
