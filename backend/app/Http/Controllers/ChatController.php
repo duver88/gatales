@@ -363,7 +363,7 @@ class ChatController extends Controller
                             $fullContent .= $chunk['content'];
                             // Send chunk immediately with aggressive flush
                             echo "event: content\n";
-                            echo "data: " . json_encode(['text' => $chunk['content']]) . "\n\n";
+                            echo "data: " . json_encode(['text' => $chunk['content']], JSON_UNESCAPED_UNICODE) . "\n\n";
                             // Padding to force buffer flush in Nginx/FastCGI
                             echo ": " . str_repeat(' ', 512) . "\n\n";
                             if (ob_get_level() > 0) {
@@ -373,7 +373,7 @@ class ChatController extends Controller
                         } elseif ($chunk['type'] === 'reasoning') {
                             // DeepSeek reasoner sends reasoning content
                             echo "event: reasoning\n";
-                            echo "data: " . json_encode(['text' => $chunk['content']]) . "\n\n";
+                            echo "data: " . json_encode(['text' => $chunk['content']], JSON_UNESCAPED_UNICODE) . "\n\n";
                             echo ": " . str_repeat(' ', 512) . "\n\n";
                             if (ob_get_level() > 0) {
                                 @ob_flush();
@@ -714,7 +714,7 @@ class ChatController extends Controller
                         if ($delta !== null && $delta !== '') {
                             $state->fullContent .= $delta;
                             echo "event: content\n";
-                            echo "data: " . json_encode(['text' => $delta]) . "\n\n";
+                            echo "data: " . json_encode(['text' => $delta], JSON_UNESCAPED_UNICODE) . "\n\n";
                             echo ": " . str_repeat(' ', 256) . "\n\n";
                             flush();
                         }
@@ -802,7 +802,7 @@ class ChatController extends Controller
     private function sendSSE(string $event, array $data): void
     {
         echo "event: {$event}\n";
-        echo "data: " . json_encode($data) . "\n\n";
+        echo "data: " . json_encode($data, JSON_UNESCAPED_UNICODE) . "\n\n";
         // Agregar padding para forzar flush de buffers de PHP-FPM/Nginx
         echo ": " . str_repeat(' ', 256) . "\n\n";
         flush();

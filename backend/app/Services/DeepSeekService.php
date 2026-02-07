@@ -280,7 +280,7 @@ class DeepSeekService
             'content' => $systemPrompt,
         ];
 
-        // Get previous messages for context (all messages, same as admin flow)
+        // Get previous messages for context (all messages)
         if ($conversation) {
             $previousMessages = $conversation->messages()
                 ->orderBy('created_at', 'asc')
