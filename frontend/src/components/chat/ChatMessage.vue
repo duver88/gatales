@@ -512,6 +512,12 @@ if (typeof window !== 'undefined') {
   color: var(--gatales-text, #ffffff);
 }
 
+/* Add spacing before bold text that starts after a line break (acts as paragraph separator) */
+.markdown-content :deep(br + strong) {
+  display: inline-block;
+  margin-top: 0.5em;
+}
+
 .markdown-content :deep(em) {
   font-style: italic;
 }
