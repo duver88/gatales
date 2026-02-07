@@ -97,8 +97,6 @@ class DeepSeekService
 
         $requestParams = $this->buildRequestParams($settings, $messages, $assistant);
         $requestParams['stream'] = true;
-        // Request usage stats in final chunk
-        $requestParams['stream_options'] = ['include_usage' => true];
 
         $fullContent = '';
         $tokensInput = 0;
@@ -236,25 +234,7 @@ class DeepSeekService
 
         // DeepSeek reasoner doesn't support temperature/top_p customization
         if (!$isReasoner) {
-            // Temperature
-            if (!empty($settings['temperature'])) {
-                $params['temperature'] = (float) $settings['temperature'];
-            }
-
-            // Top P
-            if (!empty($settings['top_p']) && $settings['top_p'] !== '1') {
-                $params['top_p'] = (float) $settings['top_p'];
-            }
-        }
-
-        // Frequency penalty (supported by both models)
-        if (!empty($settings['frequency_penalty']) && $settings['frequency_penalty'] !== '0') {
-            $params['frequency_penalty'] = (float) $settings['frequency_penalty'];
-        }
-
-        // Presence penalty (supported by both models)
-        if (!empty($settings['presence_penalty']) && $settings['presence_penalty'] !== '0') {
-            $params['presence_penalty'] = (float) $settings['presence_penalty'];
+            $params['temperature'] = (float) ($settings['temperature'] ?? 0.7);
         }
 
         // Response format (JSON mode) - NOT supported by reasoner
@@ -275,8 +255,7 @@ class DeepSeekService
             'model' => $model,
             'is_reasoner' => $isReasoner,
             'max_tokens' => $maxTokens,
-            'has_temperature' => isset($params['temperature']),
-            'has_top_p' => isset($params['top_p']),
+            'temperature' => $params['temperature'] ?? null,
         ]);
 
         return $params;
@@ -295,33 +274,21 @@ class DeepSeekService
     ): array {
         $messages = [];
 
-        // Add safety instructions if enabled
-        $finalPrompt = $systemPrompt;
-        if ($filterUnsafe === 'true') {
-            $finalPrompt .= "\n\nIMPORTANTE: Evita generar contenido inapropiado, ofensivo o danino.";
-        }
-
-        // Add system message
+        // Add system message (same as admin flow - no modifications)
         $messages[] = [
             'role' => 'system',
-            'content' => $finalPrompt,
+            'content' => $systemPrompt,
         ];
 
-        // Get previous messages for context
+        // Get previous messages for context (all messages, same as admin flow)
         if ($conversation) {
             $previousMessages = $conversation->messages()
-                ->orderBy('created_at', 'desc')
-                ->limit($contextLimit)
-                ->get()
-                ->reverse()
-                ->values();
+                ->orderBy('created_at', 'asc')
+                ->get();
         } else {
             $previousMessages = \App\Models\Message::where('user_id', $user->id)
-                ->orderBy('created_at', 'desc')
-                ->limit($contextLimit)
-                ->get()
-                ->reverse()
-                ->values();
+                ->orderBy('created_at', 'asc')
+                ->get();
         }
 
         // Add previous messages

@@ -163,16 +163,10 @@ class OpenAIService
     ): array {
         $messages = [];
 
-        // Add safety instructions if enabled
-        $finalPrompt = $systemPrompt;
-        if ($filterUnsafe === 'true') {
-            $finalPrompt .= "\n\nIMPORTANTE: Evita generar contenido inapropiado, ofensivo o danino.";
-        }
-
-        // Add system message
+        // Add system message (same as admin flow - no modifications)
         $messages[] = [
             'role' => 'system',
-            'content' => $finalPrompt,
+            'content' => $systemPrompt,
         ];
 
         // Get previous messages for context - from conversation if provided, else from user
