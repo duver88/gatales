@@ -280,15 +280,21 @@ class DeepSeekService
             'content' => $systemPrompt,
         ];
 
-        // Get previous messages for context (all messages)
+        // Get previous messages for context (respecting context_messages limit from admin)
         if ($conversation) {
             $previousMessages = $conversation->messages()
-                ->orderBy('created_at', 'asc')
-                ->get();
+                ->orderBy('created_at', 'desc')
+                ->limit($contextLimit)
+                ->get()
+                ->reverse()
+                ->values();
         } else {
             $previousMessages = \App\Models\Message::where('user_id', $user->id)
-                ->orderBy('created_at', 'asc')
-                ->get();
+                ->orderBy('created_at', 'desc')
+                ->limit($contextLimit)
+                ->get()
+                ->reverse()
+                ->values();
         }
 
         // Add previous messages
