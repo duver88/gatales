@@ -3,6 +3,7 @@ import { ref, onMounted } from 'vue'
 import { adminApi } from '../../services/api'
 
 const plans = ref([])
+const allAssistants = ref([])
 const isLoading = ref(true)
 const editingPlan = ref(null)
 const editForm = ref({})
@@ -17,6 +18,7 @@ const createForm = ref({
   hotmart_product_id: '',
   hotmart_offer_code: '',
   is_active: true,
+  assistant_ids: [],
 })
 
 const durationOptions = [
@@ -37,7 +39,19 @@ async function fetchPlans() {
   }
 }
 
-onMounted(fetchPlans)
+async function fetchAssistants() {
+  try {
+    const response = await adminApi.getAssistants()
+    allAssistants.value = response.data.assistants || response.data
+  } catch (e) {
+    console.error('Error fetching assistants:', e)
+  }
+}
+
+onMounted(() => {
+  fetchPlans()
+  fetchAssistants()
+})
 
 function startEdit(plan) {
   editingPlan.value = plan.id
@@ -49,6 +63,7 @@ function startEdit(plan) {
     hotmart_product_id: plan.hotmart_product_id || '',
     hotmart_offer_code: plan.hotmart_offer_code || '',
     is_active: plan.is_active,
+    assistant_ids: [...(plan.assistant_ids || [])],
   }
 }
 
@@ -76,8 +91,14 @@ function openCreateModal() {
     hotmart_product_id: '',
     hotmart_offer_code: '',
     is_active: true,
+    assistant_ids: [],
   }
   showCreateModal.value = true
+}
+
+function getAssistantNames(assistantIds) {
+  if (!assistantIds || assistantIds.length === 0) return 'Todos'
+  return assistantIds.length + ' asistente' + (assistantIds.length > 1 ? 's' : '')
 }
 
 function closeCreateModal() {
@@ -202,6 +223,10 @@ function formatPrice(price) {
               <span class="text-gatales-text-secondary">Offer Code</span>
               <span class="text-gatales-text font-medium text-sm font-mono">{{ plan.hotmart_offer_code || '-' }}</span>
             </div>
+            <div class="flex justify-between">
+              <span class="text-gatales-text-secondary">Asistentes</span>
+              <span class="text-gatales-text font-medium text-sm">{{ getAssistantNames(plan.assistant_ids) }}</span>
+            </div>
           </div>
 
           <div class="flex gap-2">
@@ -263,9 +288,20 @@ function formatPrice(price) {
               <input v-model="editForm.hotmart_offer_code" type="text" class="input-field text-sm font-mono" placeholder="ej: j8kbw6d6" />
               <p class="text-xs text-gatales-text-secondary mt-1">Código de oferta de Hotmart (off=xxx en la URL)</p>
             </div>
+            <div>
+              <label class="block text-sm text-gatales-text-secondary mb-1">Asistentes disponibles</label>
+              <p class="text-xs text-gatales-text-secondary mb-2">Si no seleccionas ninguno, el usuario vera todos los asistentes activos</p>
+              <div class="space-y-1.5 max-h-36 overflow-y-auto border border-gatales-border rounded p-2">
+                <label v-for="assistant in allAssistants" :key="assistant.id" class="flex items-center gap-2 cursor-pointer hover:bg-gatales-input/50 rounded px-1 py-0.5">
+                  <input type="checkbox" :value="assistant.id" v-model="editForm.assistant_ids" class="w-4 h-4 rounded" />
+                  <span class="text-sm text-gatales-text">{{ assistant.assistant_display_name || assistant.name }}</span>
+                </label>
+                <p v-if="allAssistants.length === 0" class="text-xs text-gatales-text-secondary">No hay asistentes</p>
+              </div>
+            </div>
             <div class="flex items-center gap-2">
-              <input v-model="editForm.is_active" type="checkbox" id="is_active" class="w-4 h-4" />
-              <label for="is_active" class="text-sm text-gatales-text">Plan activo</label>
+              <input v-model="editForm.is_active" type="checkbox" :id="'is_active_' + plan.id" class="w-4 h-4" />
+              <label :for="'is_active_' + plan.id" class="text-sm text-gatales-text">Plan activo</label>
             </div>
           </div>
 
@@ -315,6 +351,17 @@ function formatPrice(price) {
             <label class="block text-sm text-gatales-text-secondary mb-1">Hotmart Offer Code</label>
             <input v-model="createForm.hotmart_offer_code" type="text" class="input-field text-sm font-mono" placeholder="ej: j8kbw6d6" />
             <p class="text-xs text-gatales-text-secondary mt-1">Código de oferta de Hotmart (off=xxx en la URL)</p>
+          </div>
+          <div>
+            <label class="block text-sm text-gatales-text-secondary mb-1">Asistentes disponibles</label>
+            <p class="text-xs text-gatales-text-secondary mb-2">Si no seleccionas ninguno, el usuario vera todos los asistentes activos</p>
+            <div class="space-y-1.5 max-h-36 overflow-y-auto border border-gatales-border rounded p-2">
+              <label v-for="assistant in allAssistants" :key="assistant.id" class="flex items-center gap-2 cursor-pointer hover:bg-gatales-input/50 rounded px-1 py-0.5">
+                <input type="checkbox" :value="assistant.id" v-model="createForm.assistant_ids" class="w-4 h-4 rounded" />
+                <span class="text-sm text-gatales-text">{{ assistant.assistant_display_name || assistant.name }}</span>
+              </label>
+              <p v-if="allAssistants.length === 0" class="text-xs text-gatales-text-secondary">No hay asistentes</p>
+            </div>
           </div>
           <div class="flex items-center gap-2">
             <input v-model="createForm.is_active" type="checkbox" id="create_is_active" class="w-4 h-4" />

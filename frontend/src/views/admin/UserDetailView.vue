@@ -14,8 +14,18 @@ const isLoading = ref(true)
 const error = ref(null)
 const showAddTokensModal = ref(false)
 const showChangePlanModal = ref(false)
+const showEditUserModal = ref(false)
+const showDeleteConfirm = ref(false)
 const tokensToAdd = ref(10000)
 const selectedPlanId = ref(null)
+
+// Edit user form
+const editForm = ref({ name: '', email: '', password: '', status: '' })
+const editLoading = ref(false)
+const editError = ref(null)
+
+// Delete user
+const deleteLoading = ref(false)
 
 const userId = computed(() => route.params.id)
 
@@ -98,6 +108,51 @@ function formatDate(dateStr) {
   })
 }
 
+function openEditModal() {
+  editForm.value = {
+    name: user.value.name,
+    email: user.value.email,
+    password: '',
+    status: user.value.status,
+  }
+  editError.value = null
+  showEditUserModal.value = true
+}
+
+async function saveUser() {
+  editLoading.value = true
+  editError.value = null
+  try {
+    const data = {
+      name: editForm.value.name,
+      email: editForm.value.email,
+      status: editForm.value.status,
+    }
+    if (editForm.value.password) {
+      data.password = editForm.value.password
+    }
+    const response = await adminApi.updateUser(userId.value, data)
+    user.value = response.data.user
+    showEditUserModal.value = false
+  } catch (e) {
+    editError.value = e.response?.data?.message || 'Error al actualizar el usuario'
+  } finally {
+    editLoading.value = false
+  }
+}
+
+async function deleteUser() {
+  deleteLoading.value = true
+  try {
+    await adminApi.deleteUser(userId.value)
+    router.push('/admin/users')
+  } catch (e) {
+    alert('Error al eliminar el usuario')
+    deleteLoading.value = false
+    showDeleteConfirm.value = false
+  }
+}
+
 function getStatusClass(status) {
   const classes = {
     active: 'bg-green-500/20 text-green-400',
@@ -150,11 +205,17 @@ function getStatusClass(status) {
           >
             Desactivar
           </button>
+          <button @click="openEditModal" class="btn-secondary text-sm">
+            Editar
+          </button>
           <button @click="showAddTokensModal = true" class="btn-secondary text-sm">
             Agregar tokens
           </button>
           <button @click="showChangePlanModal = true" class="btn-secondary text-sm">
             Cambiar plan
+          </button>
+          <button @click="showDeleteConfirm = true" class="text-sm px-3 py-1.5 rounded-lg bg-red-500/20 text-red-400 hover:bg-red-500/30 transition-colors">
+            Eliminar
           </button>
         </div>
       </div>
@@ -436,6 +497,75 @@ function getStatusClass(status) {
           </button>
           <button @click="changePlan" class="btn-primary">
             Cambiar
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Edit User Modal -->
+    <div v-if="showEditUserModal" class="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+      <div class="card w-full max-w-md mx-4">
+        <h3 class="text-lg font-semibold text-gatales-text mb-4">Editar Usuario</h3>
+
+        <div v-if="editError" class="mb-4 p-3 bg-red-500/20 border border-red-500/30 rounded-lg text-red-400 text-sm">
+          {{ editError }}
+        </div>
+
+        <div class="space-y-4">
+          <div>
+            <label class="block text-sm text-gatales-text-secondary mb-1">Nombre</label>
+            <input v-model="editForm.name" type="text" class="input-field" placeholder="Nombre del usuario" />
+          </div>
+          <div>
+            <label class="block text-sm text-gatales-text-secondary mb-1">Email</label>
+            <input v-model="editForm.email" type="email" class="input-field" placeholder="correo@ejemplo.com" />
+          </div>
+          <div>
+            <label class="block text-sm text-gatales-text-secondary mb-1">Nueva contraseña</label>
+            <input v-model="editForm.password" type="password" class="input-field" placeholder="Dejar vacío para no cambiar" />
+          </div>
+          <div>
+            <label class="block text-sm text-gatales-text-secondary mb-1">Estado</label>
+            <select v-model="editForm.status" class="input-field">
+              <option value="active">Activo</option>
+              <option value="inactive">Inactivo</option>
+              <option value="pending">Pendiente</option>
+              <option value="suspended">Suspendido</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="flex gap-2 justify-end mt-6">
+          <button @click="showEditUserModal = false" class="btn-secondary" :disabled="editLoading">
+            Cancelar
+          </button>
+          <button @click="saveUser" class="btn-primary" :disabled="editLoading">
+            {{ editLoading ? 'Guardando...' : 'Guardar' }}
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Delete Confirmation Modal -->
+    <div v-if="showDeleteConfirm" class="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+      <div class="card w-full max-w-md mx-4">
+        <h3 class="text-lg font-semibold text-red-400 mb-2">Eliminar Usuario</h3>
+        <p class="text-gatales-text-secondary mb-2">
+          ¿Estás seguro de eliminar a <strong class="text-gatales-text">{{ user?.name }}</strong>?
+        </p>
+        <p class="text-sm text-red-400/80 mb-6">
+          Se eliminarán todas sus conversaciones, mensajes, suscripciones y datos de uso. Esta acción no se puede deshacer.
+        </p>
+        <div class="flex gap-2 justify-end">
+          <button @click="showDeleteConfirm = false" class="btn-secondary" :disabled="deleteLoading">
+            Cancelar
+          </button>
+          <button
+            @click="deleteUser"
+            :disabled="deleteLoading"
+            class="px-4 py-2 rounded-lg bg-red-500 text-white hover:bg-red-600 transition-colors disabled:opacity-50"
+          >
+            {{ deleteLoading ? 'Eliminando...' : 'Eliminar' }}
           </button>
         </div>
       </div>

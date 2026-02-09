@@ -91,6 +91,18 @@ export const useConversationsStore = defineStore('conversations', () => {
       if (conversation) {
         conversation.title = title
       }
+
+      // Also update in grouped conversations
+      for (const key in groupedConversations.value) {
+        const group = groupedConversations.value[key]
+        if (group.conversations) {
+          const groupedConv = group.conversations.find(c => c.id === id)
+          if (groupedConv) {
+            groupedConv.title = title
+            break
+          }
+        }
+      }
     } catch (e) {
       console.error('Error updating conversation title:', e)
       throw e
@@ -138,6 +150,17 @@ export const useConversationsStore = defineStore('conversations', () => {
       }
     } catch (e) {
       console.error('Error archiving conversation:', e)
+      throw e
+    }
+  }
+
+  async function unarchiveConversation(id) {
+    try {
+      await chatApi.unarchiveConversation(id)
+      // Refresh conversations to get it back in the list
+      await fetchConversations(true)
+    } catch (e) {
+      console.error('Error unarchiving conversation:', e)
       throw e
     }
   }
@@ -216,6 +239,7 @@ export const useConversationsStore = defineStore('conversations', () => {
     updateConversationTitle,
     deleteConversation,
     archiveConversation,
+    unarchiveConversation,
     searchConversations,
     clearSearch,
     updateConversationLocally,

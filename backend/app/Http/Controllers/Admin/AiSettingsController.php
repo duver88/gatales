@@ -42,7 +42,17 @@ class AiSettingsController extends Controller
             'settings.*.value' => 'nullable',
         ]);
 
+        $allowedKeys = [
+            'model', 'system_prompt', 'temperature', 'max_tokens', 'assistant_name',
+            'welcome_message', 'context_messages', 'top_p', 'frequency_penalty',
+            'presence_penalty', 'response_format', 'stop_sequences', 'seed',
+            'stream', 'logprobs', 'include_user_id', 'n_completions', 'filter_unsafe_content',
+        ];
+
         foreach ($validated['settings'] as $item) {
+            if (!in_array($item['key'], $allowedKeys)) {
+                continue;
+            }
             AiSetting::setValue($item['key'], $item['value']);
         }
 

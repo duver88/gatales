@@ -30,7 +30,7 @@ class SetPasswordMail extends Mailable
     public function envelope(): Envelope
     {
         return new Envelope(
-            subject: '¡Bienvenido a Gatales! Establece tu contraseña',
+            subject: '¡Bienvenido a El Cursales! Establece tu contraseña',
         );
     }
 

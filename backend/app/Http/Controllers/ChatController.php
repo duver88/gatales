@@ -269,20 +269,28 @@ class ChatController extends Controller
         $assistantSettings = $assistant ? $assistant->toSettingsArray() : null;
         $assistantId = $assistant?->id;
 
-        // Check if first message (do this BEFORE releasing DB connection)
-        $isFirstMessage = $conversation->messages()->doesntExist();
+        // Check if this is a regenerate (user message already exists in DB)
+        $isRegenerate = $request->has('_regenerate');
 
-        // Save user message BEFORE releasing resources
-        $userMessage = Message::create([
-            'user_id' => $userId,
-            'conversation_id' => $conversationId,
-            'provider' => $provider,
-            'role' => 'user',
-            'content' => $message,
-            'tokens_input' => 0,
-            'tokens_output' => 0,
-        ]);
-        $userMessageId = $userMessage->id;
+        // Check if first message (do this BEFORE releasing DB connection)
+        $isFirstMessage = !$isRegenerate && $conversation->messages()->doesntExist();
+
+        if ($isRegenerate) {
+            // Regenerate: user message already exists, don't create a new one
+            $userMessageId = $request->input('_existing_user_message_id');
+        } else {
+            // Normal send: save user message BEFORE releasing resources
+            $userMessage = Message::create([
+                'user_id' => $userId,
+                'conversation_id' => $conversationId,
+                'provider' => $provider,
+                'role' => 'user',
+                'content' => $message,
+                'tokens_input' => 0,
+                'tokens_output' => 0,
+            ]);
+            $userMessageId = $userMessage->id;
+        }
 
         // CRITICAL: Release ALL resources before streaming
         // This prevents blocking other users/admin while AI generates response
@@ -498,14 +506,6 @@ class ChatController extends Controller
             return $this->streamError('No autorizado', 403);
         }
 
-        if ($user->hasFreePlan()) {
-            return $this->streamError('free_plan', 403);
-        }
-
-        if (!$this->tokenService->hasEnoughTokens($user, 100)) {
-            return $this->streamError('tokens_exhausted', 402);
-        }
-
         // Get last user message
         $lastUserMessage = $conversation->messages()
             ->where('role', 'user')
@@ -518,7 +518,7 @@ class ChatController extends Controller
 
         $message = $lastUserMessage->content;
 
-        // Delete the last assistant message (the one we're regenerating)
+        // Delete ONLY the last assistant message (keep user message for context)
         $lastAssistantMessage = $conversation->messages()
             ->where('role', 'assistant')
             ->orderBy('created_at', 'desc')
@@ -528,131 +528,13 @@ class ChatController extends Controller
             $lastAssistantMessage->delete();
         }
 
-        $assistant = $conversation->assistant ?? $user->getAssistant();
-        $isDeepSeek = $assistant && $assistant->isDeepSeek();
-        $provider = $isDeepSeek ? 'deepseek' : 'openai';
-        $usesResponsesApi = !$isDeepSeek && $assistant && $assistant->usesResponsesApi();
-
-        $conversationId = $conversation->id;
-        $assistantSettings = $assistant ? $assistant->toSettingsArray() : null;
-        $assistantId = $assistant?->id;
-
-        ReleaseResourcesForStreaming::releaseAll();
-
-        return new StreamedResponse(function () use ($userId, $message, $conversationId, $assistantSettings, $assistantId, $usesResponsesApi, $isDeepSeek, $provider) {
-            set_time_limit(0);
-            @ini_set('output_buffering', 'off');
-            @ini_set('zlib.output_compression', false);
-            @ini_set('implicit_flush', true);
-            while (ob_get_level() > 0) {
-                ob_end_flush();
-            }
-            ob_implicit_flush(true);
-            echo ": " . str_repeat(' ', 4096) . "\n\n";
-            flush();
-
-            try {
-                DB::reconnect();
-                $user = \App\Models\User::find($userId);
-                $conversation = Conversation::find($conversationId);
-                $assistant = $assistantId ? Assistant::find($assistantId) : null;
-
-                if (!$user || !$conversation) {
-                    $this->sendSSE('error', ['message' => 'Datos no encontrados']);
-                    return;
-                }
-
-                $this->sendSSE('start', []);
-
-                $fullContent = '';
-                $tokensInput = 0;
-                $tokensOutput = 0;
-                $messageId = null;
-
-                if ($usesResponsesApi) {
-                    $this->streamWithResponsesApi(
-                        $user, $message, $assistant, $conversation,
-                        $fullContent, $tokensInput, $tokensOutput, $messageId
-                    );
-                } else {
-                    $aiService = $isDeepSeek ? $this->deepSeekService : $this->openAIService;
-                    foreach ($aiService->sendMessageStreamed($user, $message, $conversation) as $chunk) {
-                        if ($chunk['type'] === 'content') {
-                            $fullContent .= $chunk['content'];
-                            echo "event: content\n";
-                            echo "data: " . json_encode(['text' => $chunk['content']], JSON_UNESCAPED_UNICODE) . "\n\n";
-                            echo ": " . str_repeat(' ', 512) . "\n\n";
-                            if (ob_get_level() > 0) { @ob_flush(); }
-                            flush();
-                        } elseif ($chunk['type'] === 'reasoning') {
-                            echo "event: reasoning\n";
-                            echo "data: " . json_encode(['text' => $chunk['content']], JSON_UNESCAPED_UNICODE) . "\n\n";
-                            echo ": " . str_repeat(' ', 512) . "\n\n";
-                            if (ob_get_level() > 0) { @ob_flush(); }
-                            flush();
-                        } elseif ($chunk['type'] === 'done') {
-                            $tokensInput = $chunk['tokens_input'];
-                            $tokensOutput = $chunk['tokens_output'];
-                            $messageId = $chunk['message_id'];
-                            if (isset($chunk['full_content'])) {
-                                $fullContent = $chunk['full_content'];
-                            }
-                        }
-                    }
-                }
-
-                // Save new assistant message
-                $assistantMessage = Message::create([
-                    'user_id' => $userId,
-                    'conversation_id' => $conversationId,
-                    'provider' => $provider,
-                    'role' => 'assistant',
-                    'content' => $fullContent,
-                    'tokens_input' => $tokensInput,
-                    'tokens_output' => $tokensOutput,
-                    'openai_message_id' => $messageId,
-                ]);
-
-                $conversation->updateTokenStats($tokensInput, $tokensOutput);
-
-                $this->tokenService->deductTokens($user, $tokensInput, $tokensOutput, $provider);
-                $user->refresh();
-                $conversation->refresh();
-
-                $this->sendSSE('done', [
-                    'message_id' => $assistantMessage->id,
-                    'tokens_input' => $tokensInput,
-                    'tokens_output' => $tokensOutput,
-                    'tokens_used' => $tokensInput + $tokensOutput,
-                    'tokens_balance' => $user->tokens_balance,
-                    'provider' => $provider,
-                    'model' => $assistantSettings['model'] ?? 'gpt-4o-mini',
-                    'conversation' => [
-                        'id' => $conversation->id,
-                        'title' => $conversation->title,
-                        'total_tokens' => $conversation->total_tokens,
-                        'total_tokens_input' => $conversation->total_tokens_input,
-                        'total_tokens_output' => $conversation->total_tokens_output,
-                    ],
-                ]);
-
-            } catch (\Exception $e) {
-                Log::error('Regenerate streaming error', [
-                    'user_id' => $userId,
-                    'conversation_id' => $conversationId,
-                    'error' => $e->getMessage(),
-                ]);
-                $this->sendSSE('error', [
-                    'message' => 'Error al regenerar la respuesta',
-                    'error' => config('app.debug') ? $e->getMessage() : null,
-                ]);
-            }
-        }, 200, [
-            'Content-Type' => 'text/event-stream',
-            'Cache-Control' => 'no-cache, no-store, must-revalidate',
-            'Connection' => 'keep-alive',
-            'X-Accel-Buffering' => 'no',
+        // Re-send through normal flow, but skip user message creation (it already exists)
+        $request->merge([
+            'message' => $message,
+            '_regenerate' => true,
+            '_existing_user_message_id' => $lastUserMessage->id,
         ]);
+        return $this->conversationSendStream($request, $conversation);
     }
 
     /**
@@ -1169,11 +1051,14 @@ class ChatController extends Controller
     {
         $user = $request->user();
 
-        // Cache assistants list for 5 minutes
-        $assistants = Cache::remember('active_assistants', 300, function () {
-            return Assistant::active()
-                ->orderBy('name')
-                ->get()
+        // Cache per plan (not globally) so different plans see different assistants
+        $plan = $user->activeSubscription?->plan;
+        $cacheKey = $plan ? "plan_{$plan->id}_assistants" : 'all_active_assistants';
+
+        $assistants = Cache::remember($cacheKey, 300, function () use ($user) {
+            return $user->getAvailableAssistants()
+                ->sortBy('name')
+                ->values()
                 ->map(function ($assistant) {
                     return [
                         'id' => $assistant->id,
@@ -1210,6 +1095,14 @@ class ChatController extends Controller
                 'success' => false,
                 'message' => 'El asistente seleccionado no esta disponible',
             ], 400);
+        }
+
+        // Verify assistant is available for the user's plan
+        if (!$user->canUseAssistant($assistant->id)) {
+            return response()->json([
+                'success' => false,
+                'message' => 'El asistente seleccionado no esta disponible en tu plan actual',
+            ], 403);
         }
 
         // Update user's assistant

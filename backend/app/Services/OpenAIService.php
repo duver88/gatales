@@ -170,19 +170,20 @@ class OpenAIService
         ];
 
         // Get previous messages for context - from conversation if provided, else from user
+        // Use sortBy instead of reverse() to guarantee chronological order
         if ($conversation) {
             $previousMessages = $conversation->messages()
                 ->orderBy('created_at', 'desc')
                 ->limit($contextLimit)
                 ->get()
-                ->reverse()
+                ->sortBy('created_at')
                 ->values();
         } else {
             $previousMessages = Message::where('user_id', $user->id)
                 ->orderBy('created_at', 'desc')
                 ->limit($contextLimit)
                 ->get()
-                ->reverse()
+                ->sortBy('created_at')
                 ->values();
         }
 
@@ -194,11 +195,15 @@ class OpenAIService
             ];
         }
 
-        // Add the new user message
-        $messages[] = [
-            'role' => 'user',
-            'content' => $newMessage,
-        ];
+        // Add the new user message only if it's not already the last message in context
+        // (prevents duplication when the message was already saved to DB before calling this)
+        $lastMsg = $previousMessages->last();
+        if (!$lastMsg || $lastMsg->role !== 'user' || $lastMsg->content !== $newMessage) {
+            $messages[] = [
+                'role' => 'user',
+                'content' => $newMessage,
+            ];
+        }
 
         return $messages;
     }

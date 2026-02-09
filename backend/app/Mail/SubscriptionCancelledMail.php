@@ -19,7 +19,7 @@ class SubscriptionCancelledMail extends Mailable
     public function __construct(User $user)
     {
         $this->user = $user;
-        $this->reactivateUrl = config('app.hotmart_checkout_url', 'https://hotmart.com');
+        $this->reactivateUrl = config('services.hotmart.renew_url', 'https://hotmart.com');
     }
 
     /**
@@ -28,7 +28,7 @@ class SubscriptionCancelledMail extends Mailable
     public function envelope(): Envelope
     {
         return new Envelope(
-            subject: '😢 Tu suscripción ha sido cancelada - ¡Te extrañaremos!',
+            subject: 'Tu suscripcion ha sido cancelada',
         );
     }
 

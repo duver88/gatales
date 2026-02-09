@@ -78,9 +78,10 @@ class UserController extends Controller
 
         // Search by email or name
         if ($search = $request->input('search')) {
-            $query->where(function ($q) use ($search) {
-                $q->where('email', 'ilike', "%{$search}%")
-                    ->orWhere('name', 'ilike', "%{$search}%");
+            $escaped = str_replace(['%', '_'], ['\%', '\_'], $search);
+            $query->where(function ($q) use ($escaped) {
+                $q->where('email', 'ilike', "%{$escaped}%")
+                    ->orWhere('name', 'ilike', "%{$escaped}%");
             });
         }
 
@@ -96,9 +97,10 @@ class UserController extends Controller
             });
         }
 
-        // Order by
-        $orderBy = $request->input('order_by', 'created_at');
-        $orderDir = $request->input('order_dir', 'desc');
+        // Order by (whitelist to prevent SQL injection)
+        $allowedOrderBy = ['created_at', 'name', 'email', 'status', 'tokens_balance'];
+        $orderBy = in_array($request->input('order_by'), $allowedOrderBy) ? $request->input('order_by') : 'created_at';
+        $orderDir = $request->input('order_dir') === 'asc' ? 'asc' : 'desc';
         $query->orderBy($orderBy, $orderDir);
 
         // Paginate
@@ -199,14 +201,20 @@ class UserController extends Controller
         $validated = $request->validate([
             'name' => 'sometimes|string|max:255',
             'email' => 'sometimes|email|unique:users,email,' . $user->id,
+            'password' => 'sometimes|string|min:6',
+            'status' => 'sometimes|in:active,inactive,pending,suspended',
         ]);
+
+        if (isset($validated['password'])) {
+            $validated['password'] = Hash::make($validated['password']);
+        }
 
         $user->update($validated);
 
         return response()->json([
             'success' => true,
             'message' => 'Usuario actualizado correctamente',
-            'user' => $user->fresh(),
+            'user' => $user->fresh()->load('activeSubscription.plan'),
         ]);
     }
 
@@ -294,6 +302,14 @@ class UserController extends Controller
         // Clear plan cache so hasFreePlan() returns updated value
         $user->clearPlanCache();
 
+        // Reassign assistant if current one is not available in the new plan
+        $planAssistants = $plan->assistants;
+        if ($planAssistants->isNotEmpty() && $user->assistant_id) {
+            if (!$planAssistants->contains('id', $user->assistant_id)) {
+                $user->update(['assistant_id' => $planAssistants->first()->id]);
+            }
+        }
+
         return response()->json([
             'success' => true,
             'message' => "Plan cambiado a {$plan->name}",
@@ -318,6 +334,35 @@ class UserController extends Controller
             'success' => true,
             'message' => "Asistente asignado: {$assistant->name}",
             'user' => $user->fresh()->load('assistant'),
+        ]);
+    }
+
+    /**
+     * Delete a user and all related data
+     */
+    public function destroy(User $user): JsonResponse
+    {
+        // Delete all user tokens
+        $user->tokens()->delete();
+
+        // Delete conversations and messages
+        $user->conversations()->each(function ($conv) {
+            $conv->messages()->delete();
+            $conv->delete();
+        });
+
+        // Delete subscriptions
+        $user->subscriptions()->delete();
+
+        // Delete token usage records
+        $user->tokenUsage()->delete();
+
+        // Delete the user
+        $user->delete();
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Usuario eliminado correctamente',
         ]);
     }
 }

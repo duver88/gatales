@@ -37,7 +37,32 @@
       "Bash(git log:*)",
       "WebFetch(domain:api-docs.deepseek.com)",
       "Bash(echo:*)",
-      "Bash(find:*)"
+      "Bash(find:*)",
+      "Bash(git status:*)",
+      "Bash(git fetch:*)",
+      "WebFetch(domain:developers.hotmart.com)",
+      "Bash(ssh root@207.180.218.138 \"cd /var/www/gatales && git pull origin main\")",
+      "Bash(ssh root@207.180.218.138 \"find /var/www -maxdepth 2 -name ''.git'' -type d 2>/dev/null || find /home -maxdepth 3 -name ''.git'' -type d 2>/dev/null\")",
+      "Bash(ssh root@207.180.218.138 \"ls /var/www/\")",
+      "Bash(ssh root@207.180.218.138 \"ls /home/\")",
+      "Bash(ssh:*)",
+      "Bash(ssh-copy-id:*)",
+      "Bash(ls \"c:\\\\Users\\\\duver\\\\Desktop\\\\gatales\\\\frontend\"\" | grep -E \"vite)",
+      "Bash(config \")",
+      "Bash(magick:*)",
+      "Bash(npx --yes sharp-cli:*)",
+      "Bash(npm uninstall:*)",
+      "Bash(scp:*)",
+      "Bash(ls \"c:\\\\Users\\\\duver\\\\Desktop\\\\gatales\\\\frontend\\\\dist\\\\assets\"\" | grep \"index- \")",
+      "Bash(for f in *)",
+      "Bash(do scp -O \"$f\" root@207.180.218.138:/home/dlellcusalia/web/elcursales.ai/public_html/backend/public/assets/)",
+      "Bash(done)",
+      "Bash(do scp -O \"$f\" root@207.180.218.138:/home/cursales/web/panel.elcursales.ai/public_html/assets/)",
+      "Bash(ls:*)",
+      "Bash(do scp -O \"$f\" root@207.180.218.138:/home/dlellcusalia/web/elcursales.ai/public_html/frontend/dist/assets/)",
+      "Bash(tar:*)",
+      "Bash(do cat \"/c/Users/duver/Desktop/gatales/$f\")",
+      "Bash(curl:*)"
     ]
   }
 }

@@ -173,6 +173,32 @@ class User extends Authenticatable
     }
 
     /**
+     * Get assistants available for the user's current plan.
+     * If the plan has no assistants assigned, returns all active assistants.
+     */
+    public function getAvailableAssistants(): \Illuminate\Database\Eloquent\Collection
+    {
+        $plan = $this->activeSubscription?->plan;
+
+        if ($plan) {
+            $planAssistants = $plan->assistants()->where('is_active', true)->get();
+            if ($planAssistants->isNotEmpty()) {
+                return $planAssistants;
+            }
+        }
+
+        return Assistant::active()->orderBy('name')->get();
+    }
+
+    /**
+     * Check if a specific assistant is available for this user's plan.
+     */
+    public function canUseAssistant(int $assistantId): bool
+    {
+        return $this->getAvailableAssistants()->contains('id', $assistantId);
+    }
+
+    /**
      * Check if user has the free plan (cached for 5 minutes)
      */
     public function hasFreePlan(): bool

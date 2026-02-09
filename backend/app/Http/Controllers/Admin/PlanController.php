@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Plan;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Str;
 
 class PlanController extends Controller
@@ -15,9 +16,10 @@ class PlanController extends Controller
      */
     public function index(): JsonResponse
     {
-        $plans = Plan::withCount(['subscriptions as active_subscriptions' => function ($query) {
-            $query->where('status', 'active');
-        }])
+        $plans = Plan::with('assistants')
+            ->withCount(['subscriptions as active_subscriptions' => function ($query) {
+                $query->where('status', 'active');
+            }])
             ->orderBy('price')
             ->get()
             ->map(function ($plan) {
@@ -33,6 +35,7 @@ class PlanController extends Controller
                     'features' => $plan->features,
                     'is_active' => $plan->is_active,
                     'active_subscriptions' => $plan->active_subscriptions,
+                    'assistant_ids' => $plan->assistants->pluck('id'),
                     'created_at' => $plan->created_at->toIso8601String(),
                 ];
             });
@@ -57,6 +60,8 @@ class PlanController extends Controller
             'hotmart_offer_code' => 'nullable|string|max:50',
             'features' => 'nullable|array',
             'is_active' => 'boolean',
+            'assistant_ids' => 'nullable|array',
+            'assistant_ids.*' => 'exists:assistants,id',
         ]);
 
         // Generate slug from name
@@ -82,10 +87,14 @@ class PlanController extends Controller
             'is_active' => $validated['is_active'] ?? true,
         ]);
 
+        if (!empty($validated['assistant_ids'])) {
+            $plan->assistants()->sync($validated['assistant_ids']);
+        }
+
         return response()->json([
             'success' => true,
             'message' => 'Plan creado correctamente',
-            'plan' => $plan,
+            'plan' => $plan->load('assistants'),
         ], 201);
     }
 
@@ -103,14 +112,24 @@ class PlanController extends Controller
             'hotmart_offer_code' => 'sometimes|nullable|string|max:50',
             'features' => 'sometimes|nullable|array',
             'is_active' => 'sometimes|boolean',
+            'assistant_ids' => 'sometimes|nullable|array',
+            'assistant_ids.*' => 'exists:assistants,id',
         ]);
 
+        $assistantIds = $validated['assistant_ids'] ?? null;
+        unset($validated['assistant_ids']);
+
         $plan->update($validated);
+
+        if ($assistantIds !== null) {
+            $plan->assistants()->sync($assistantIds);
+            Cache::forget("plan_{$plan->id}_assistants");
+        }
 
         return response()->json([
             'success' => true,
             'message' => 'Plan actualizado correctamente',
-            'plan' => $plan->fresh(),
+            'plan' => $plan->fresh()->load('assistants'),
         ]);
     }
 

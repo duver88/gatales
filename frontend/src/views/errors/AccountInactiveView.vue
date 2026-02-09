@@ -1,23 +1,18 @@
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '../../stores/auth'
+import PricingCards from '../../components/PricingCards.vue'
 
 const router = useRouter()
 const authStore = useAuthStore()
 
 const checking = ref(true)
 
-const renewUrl = computed(() => {
-  return authStore.user?.hotmart_renew_url || 'https://hotmart.com'
-})
-
 onMounted(async () => {
   try {
-    // Check if user status changed (maybe they renewed)
     await authStore.fetchUser(true, true)
     if (authStore.isActive) {
-      // Account is now active, redirect to chat
       window.location.href = '/chat'
       return
     }
@@ -31,10 +26,8 @@ onMounted(async () => {
 async function handleRefreshStatus() {
   checking.value = true
   try {
-    // force=true to bypass local cache, refresh=true to clear backend cache
     await authStore.fetchUser(true, true)
     if (authStore.isActive) {
-      // Full page reload to ensure all components get fresh data
       window.location.href = '/chat'
     }
   } catch (e) {
@@ -51,8 +44,8 @@ async function handleLogout() {
 </script>
 
 <template>
-  <div class="min-h-dvh flex items-center justify-center bg-gatales-bg px-4 py-8 safe-area-inset">
-    <!-- Loading while checking status -->
+  <div class="min-h-dvh bg-gatales-bg flex flex-col items-center justify-center px-4 py-6 sm:py-10 safe-area-inset">
+    <!-- Loading -->
     <div v-if="checking" class="text-center">
       <svg class="animate-spin h-8 w-8 text-gatales-accent mx-auto mb-3" fill="none" viewBox="0 0 24 24">
         <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
@@ -61,44 +54,36 @@ async function handleLogout() {
       <p class="text-gatales-text-secondary text-sm">Verificando tu cuenta...</p>
     </div>
 
-    <div v-else class="w-full max-w-sm sm:max-w-md text-center">
-      <!-- Icon -->
-      <div class="w-16 h-16 sm:w-20 sm:h-20 mx-auto mb-4 sm:mb-6 rounded-full bg-red-500/20 flex items-center justify-center">
-        <svg class="w-8 h-8 sm:w-10 sm:h-10 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" />
-        </svg>
+    <div v-else class="w-full max-w-2xl mx-auto">
+      <!-- Header compacto -->
+      <div class="text-center mb-6 sm:mb-8">
+        <div class="w-14 h-14 sm:w-16 sm:h-16 mx-auto mb-3 sm:mb-4 rounded-full bg-red-500/15 flex items-center justify-center">
+          <svg class="w-7 h-7 sm:w-8 sm:h-8 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" />
+          </svg>
+        </div>
+        <h1 class="text-xl sm:text-2xl font-bold text-gatales-text mb-1.5">
+          Tu suscripcion ha expirado
+        </h1>
+        <p class="text-sm text-gatales-text-secondary">
+          Renueva o elige un nuevo plan para seguir usando El Cursales.
+        </p>
       </div>
 
-      <!-- Title -->
-      <h1 class="text-xl sm:text-2xl font-bold text-gatales-text mb-2">
-        Tu cuenta esta inactiva
-      </h1>
+      <!-- Pricing Cards -->
+      <PricingCards />
 
-      <!-- Description -->
-      <p class="text-sm sm:text-base text-gatales-text-secondary mb-5 sm:mb-6 px-2">
-        Por favor renueva tu suscripcion para continuar usando El Cursales.
-      </p>
-
-      <!-- Actions -->
-      <div class="space-y-3">
-        <a
-          :href="renewUrl"
-          target="_blank"
-          class="btn-primary block w-full text-center py-3 text-sm sm:text-base active:scale-[0.98] transition-transform"
-        >
-          Renovar suscripcion
-        </a>
-
+      <!-- Acciones -->
+      <div class="max-w-sm mx-auto space-y-3 mt-6 sm:mt-8">
         <button
           @click="handleRefreshStatus"
           class="w-full px-6 py-3 bg-blue-600 hover:bg-blue-700 active:scale-[0.98] text-white font-medium rounded-lg transition-all text-sm sm:text-base"
         >
           Ya renove mi suscripcion
         </button>
-
         <button
           @click="handleLogout"
-          class="btn-secondary w-full py-3 text-sm sm:text-base active:scale-[0.98] transition-transform"
+          class="w-full px-6 py-3 bg-gatales-input hover:bg-gatales-input/80 active:scale-[0.98] text-gatales-text font-medium rounded-lg transition-all text-sm sm:text-base"
         >
           Cerrar sesion
         </button>

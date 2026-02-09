@@ -28,16 +28,10 @@ async function handleSubmit() {
     <div class="w-full max-w-sm sm:max-w-md">
       <!-- Logo -->
       <div class="text-center mb-8">
-        <div class="w-16 h-16 bg-brand rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-lg shadow-brand/30">
-          <svg class="w-10 h-10 text-white" viewBox="0 0 100 100" fill="currentColor">
-            <!-- Cat head -->
-            <path d="M50 15 L25 35 L25 60 Q25 80 50 85 Q75 80 75 60 L75 35 Z"/>
-            <!-- Left ear -->
-            <path d="M25 35 L15 10 L35 30 Z"/>
-            <!-- Right ear -->
-            <path d="M75 35 L85 10 L65 30 Z"/>
-          </svg>
-        </div>
+        <picture class="block w-20 h-20 sm:w-24 sm:h-24 mx-auto mb-4">
+          <source srcset="/logo-192.webp" type="image/webp" />
+          <img src="/logo-192.png" alt="El Cursales" class="w-full h-full object-contain" fetchpriority="high" width="192" height="192" />
+        </picture>
         <h1 class="text-2xl sm:text-3xl font-bold text-brand">El Cursales</h1>
         <p class="text-sm text-text-secondary mt-2">Panel de Administración</p>
       </div>

@@ -3,6 +3,7 @@ import { ref, watch } from 'vue'
 import { useRouter, useRoute, RouterView } from 'vue-router'
 import { useAdminStore } from '../../stores/admin'
 import { useThemeStore } from '../../stores/theme'
+import { adminAuthApi } from '../../services/api'
 
 const router = useRouter()
 const route = useRoute()
@@ -11,6 +12,20 @@ const themeStore = useThemeStore()
 
 const sidebarOpen = ref(false)
 const sidebarCollapsed = ref(false)
+
+// Profile modal
+const showProfileModal = ref(false)
+const profileForm = ref({ name: '', email: '' })
+const profileError = ref('')
+const profileSuccess = ref('')
+const isSavingProfile = ref(false)
+
+// Password modal
+const showPasswordModal = ref(false)
+const passwordForm = ref({ current_password: '', password: '', password_confirmation: '' })
+const passwordError = ref('')
+const passwordSuccess = ref('')
+const isSavingPassword = ref(false)
 
 const menuItems = [
   { name: 'Dashboard', path: '/admin/dashboard', icon: 'chart' },
@@ -44,6 +59,65 @@ async function handleLogout() {
   await adminStore.logout()
   router.push('/admin/login')
 }
+
+function openProfileModal() {
+  profileForm.value = {
+    name: adminStore.admin?.name || '',
+    email: adminStore.admin?.email || '',
+  }
+  profileError.value = ''
+  profileSuccess.value = ''
+  showProfileModal.value = true
+}
+
+async function saveProfile() {
+  profileError.value = ''
+  profileSuccess.value = ''
+  isSavingProfile.value = true
+  try {
+    const response = await adminAuthApi.updateProfile(profileForm.value)
+    adminStore.admin = response.data.admin
+    localStorage.setItem('admin', JSON.stringify(response.data.admin))
+    profileSuccess.value = 'Perfil actualizado correctamente'
+    setTimeout(() => { showProfileModal.value = false }, 1200)
+  } catch (e) {
+    profileError.value = e.response?.data?.message || 'Error al actualizar el perfil'
+  } finally {
+    isSavingProfile.value = false
+  }
+}
+
+function openPasswordModal() {
+  passwordForm.value = { current_password: '', password: '', password_confirmation: '' }
+  passwordError.value = ''
+  passwordSuccess.value = ''
+  showPasswordModal.value = true
+}
+
+async function savePassword() {
+  passwordError.value = ''
+  passwordSuccess.value = ''
+
+  if (passwordForm.value.password !== passwordForm.value.password_confirmation) {
+    passwordError.value = 'Las contraseñas no coinciden'
+    return
+  }
+  if (passwordForm.value.password.length < 8) {
+    passwordError.value = 'La contraseña debe tener al menos 8 caracteres'
+    return
+  }
+
+  isSavingPassword.value = true
+  try {
+    await adminAuthApi.changePassword(passwordForm.value)
+    passwordSuccess.value = 'Contraseña actualizada correctamente'
+    setTimeout(() => { showPasswordModal.value = false }, 1200)
+  } catch (e) {
+    passwordError.value = e.response?.data?.message || 'Error al cambiar la contraseña'
+  } finally {
+    isSavingPassword.value = false
+  }
+}
 </script>
 
 <template>
@@ -53,13 +127,10 @@ async function handleLogout() {
       <div class="flex items-center justify-between px-4 py-3">
         <div class="flex items-center gap-3">
           <!-- Logo -->
-          <div class="w-8 h-8 bg-brand rounded-lg flex items-center justify-center">
-            <svg class="w-5 h-5 text-white" viewBox="0 0 100 100" fill="currentColor">
-              <path d="M50 15 L25 35 L25 60 Q25 80 50 85 Q75 80 75 60 L75 35 Z"/>
-              <path d="M25 35 L15 10 L35 30 Z"/>
-              <path d="M75 35 L85 10 L65 30 Z"/>
-            </svg>
-          </div>
+          <picture class="block w-8 h-8">
+            <source srcset="/logo-64.webp" type="image/webp" />
+            <img src="/logo-64.png" alt="El Cursales" class="w-full h-full object-contain" width="64" height="64" loading="lazy" />
+          </picture>
           <div>
             <h1 class="text-base font-bold text-brand">El Cursales</h1>
             <p class="text-[10px] text-text-secondary">Panel Admin</p>
@@ -97,17 +168,11 @@ async function handleLogout() {
       <!-- Logo Section -->
       <div class="p-5 border-b border-border">
         <div class="flex items-center gap-3">
-          <!-- Cat Logo -->
-          <div class="w-10 h-10 bg-brand rounded-xl flex items-center justify-center shadow-lg shadow-brand/20">
-            <svg class="w-7 h-7 text-white" viewBox="0 0 100 100" fill="currentColor">
-              <!-- Cat head -->
-              <path d="M50 15 L25 35 L25 60 Q25 80 50 85 Q75 80 75 60 L75 35 Z"/>
-              <!-- Left ear -->
-              <path d="M25 35 L15 10 L35 30 Z"/>
-              <!-- Right ear -->
-              <path d="M75 35 L85 10 L65 30 Z"/>
-            </svg>
-          </div>
+          <!-- Logo -->
+          <picture class="block w-10 h-10">
+            <source srcset="/logo-64.webp" type="image/webp" />
+            <img src="/logo-64.png" alt="El Cursales" class="w-full h-full object-contain" width="64" height="64" loading="lazy" />
+          </picture>
           <div>
             <h1 class="text-lg font-bold text-brand">El Cursales</h1>
             <p class="text-xs text-text-secondary">Panel de Administración</p>
@@ -189,7 +254,7 @@ async function handleLogout() {
         </button>
 
         <!-- User info -->
-        <div class="flex items-center gap-3 mb-3 p-2 rounded-lg bg-bg-input">
+        <div class="flex items-center gap-3 mb-2 p-2 rounded-lg bg-bg-input">
           <div class="w-9 h-9 rounded-full bg-brand/20 flex items-center justify-center text-brand font-semibold shrink-0">
             {{ adminStore.admin?.name?.charAt(0)?.toUpperCase() || 'A' }}
           </div>
@@ -198,6 +263,29 @@ async function handleLogout() {
             <p class="text-xs text-text-secondary truncate">{{ adminStore.admin?.email }}</p>
           </div>
         </div>
+
+        <!-- Admin Actions -->
+        <div class="flex gap-2 mb-2">
+          <button
+            @click="openProfileModal"
+            class="flex-1 flex items-center justify-center gap-1.5 px-2 py-2 text-xs text-text-secondary bg-bg-input hover:bg-bg-hover rounded-lg transition-colors font-medium"
+          >
+            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+            </svg>
+            Perfil
+          </button>
+          <button
+            @click="openPasswordModal"
+            class="flex-1 flex items-center justify-center gap-1.5 px-2 py-2 text-xs text-text-secondary bg-bg-input hover:bg-bg-hover rounded-lg transition-colors font-medium"
+          >
+            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" />
+            </svg>
+            Contraseña
+          </button>
+        </div>
+
         <button
           @click="handleLogout"
           class="w-full flex items-center justify-center gap-2 px-3 py-2.5 text-sm text-error bg-error/10 hover:bg-error/20 rounded-lg transition-colors font-medium"
@@ -214,5 +302,97 @@ async function handleLogout() {
     <main class="flex-1 overflow-auto pt-14 lg:pt-0 bg-bg-dark">
       <RouterView />
     </main>
+
+    <!-- Profile Edit Modal -->
+    <Teleport to="body">
+      <Transition name="fade">
+        <div
+          v-if="showProfileModal"
+          class="fixed inset-0 z-[60] bg-black/60 flex items-center justify-center p-4"
+          @click.self="showProfileModal = false"
+        >
+          <div class="w-full max-w-md bg-bg-secondary border border-border rounded-xl shadow-xl">
+            <div class="flex items-center justify-between p-4 border-b border-border">
+              <h3 class="text-lg font-semibold text-text-primary">Editar Perfil</h3>
+              <button @click="showProfileModal = false" class="p-2 rounded-lg hover:bg-bg-hover transition-colors">
+                <svg class="w-5 h-5 text-text-secondary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+            <form @submit.prevent="saveProfile" class="p-4 space-y-4">
+              <div v-if="profileSuccess" class="bg-green-500/10 border border-green-500/50 text-green-400 px-4 py-3 rounded-lg text-sm">
+                {{ profileSuccess }}
+              </div>
+              <div v-if="profileError" class="bg-red-500/10 border border-red-500/50 text-red-400 px-4 py-3 rounded-lg text-sm">
+                {{ profileError }}
+              </div>
+              <div>
+                <label class="block text-sm font-medium text-text-secondary mb-1">Nombre</label>
+                <input v-model="profileForm.name" type="text" required class="input-field" placeholder="Tu nombre" />
+              </div>
+              <div>
+                <label class="block text-sm font-medium text-text-secondary mb-1">Correo electrónico</label>
+                <input v-model="profileForm.email" type="email" required class="input-field" placeholder="admin@ejemplo.com" />
+              </div>
+              <div class="flex gap-3 pt-2">
+                <button type="button" @click="showProfileModal = false" class="flex-1 btn-secondary">Cancelar</button>
+                <button type="submit" :disabled="isSavingProfile" class="flex-1 btn-primary">
+                  {{ isSavingProfile ? 'Guardando...' : 'Guardar' }}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      </Transition>
+    </Teleport>
+
+    <!-- Password Change Modal -->
+    <Teleport to="body">
+      <Transition name="fade">
+        <div
+          v-if="showPasswordModal"
+          class="fixed inset-0 z-[60] bg-black/60 flex items-center justify-center p-4"
+          @click.self="showPasswordModal = false"
+        >
+          <div class="w-full max-w-md bg-bg-secondary border border-border rounded-xl shadow-xl">
+            <div class="flex items-center justify-between p-4 border-b border-border">
+              <h3 class="text-lg font-semibold text-text-primary">Cambiar Contraseña</h3>
+              <button @click="showPasswordModal = false" class="p-2 rounded-lg hover:bg-bg-hover transition-colors">
+                <svg class="w-5 h-5 text-text-secondary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+            <form @submit.prevent="savePassword" class="p-4 space-y-4">
+              <div v-if="passwordSuccess" class="bg-green-500/10 border border-green-500/50 text-green-400 px-4 py-3 rounded-lg text-sm">
+                {{ passwordSuccess }}
+              </div>
+              <div v-if="passwordError" class="bg-red-500/10 border border-red-500/50 text-red-400 px-4 py-3 rounded-lg text-sm">
+                {{ passwordError }}
+              </div>
+              <div>
+                <label class="block text-sm font-medium text-text-secondary mb-1">Contraseña actual</label>
+                <input v-model="passwordForm.current_password" type="password" required class="input-field" placeholder="Tu contraseña actual" />
+              </div>
+              <div>
+                <label class="block text-sm font-medium text-text-secondary mb-1">Nueva contraseña</label>
+                <input v-model="passwordForm.password" type="password" required class="input-field" placeholder="Mínimo 8 caracteres" />
+              </div>
+              <div>
+                <label class="block text-sm font-medium text-text-secondary mb-1">Confirmar nueva contraseña</label>
+                <input v-model="passwordForm.password_confirmation" type="password" required class="input-field" placeholder="Repite la nueva contraseña" />
+              </div>
+              <div class="flex gap-3 pt-2">
+                <button type="button" @click="showPasswordModal = false" class="flex-1 btn-secondary">Cancelar</button>
+                <button type="submit" :disabled="isSavingPassword" class="flex-1 btn-primary">
+                  {{ isSavingPassword ? 'Guardando...' : 'Guardar' }}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      </Transition>
+    </Teleport>
   </div>
 </template>

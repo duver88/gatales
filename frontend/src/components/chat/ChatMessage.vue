@@ -24,7 +24,7 @@ const props = defineProps({
   },
 })
 
-const emit = defineEmits(['retry', 'regenerate', 'resend'])
+const emit = defineEmits(['retry', 'resend'])
 
 const isUser = computed(() => props.message.role === 'user')
 const isStreaming = computed(() => props.message.isStreaming === true)
@@ -35,17 +35,6 @@ const isStopped = computed(() => props.message.isStopped === true)
 // Show retry for failed/stopped assistant messages
 const canRetry = computed(() => !isUser.value && (isFailed.value || isStopped.value))
 
-// Show regenerate button on last assistant message (when not generating and not failed/stopped)
-const canRegenerate = computed(() =>
-  !isUser.value &&
-  props.isLastMessage &&
-  !isStreaming.value &&
-  !isThinking.value &&
-  !isFailed.value &&
-  !isStopped.value &&
-  !props.isGenerating
-)
-
 // Show resend button for user message if it's the last message (no assistant response)
 const canResend = computed(() =>
   isUser.value &&
@@ -55,10 +44,6 @@ const canResend = computed(() =>
 
 function handleRetry() {
   emit('retry')
-}
-
-function handleRegenerate() {
-  emit('regenerate')
 }
 
 function handleResend() {
@@ -147,13 +132,15 @@ function formatMarkdown(content) {
 
   // Unordered lists: - item or * item
   result = result.replace(/^[\-\*] (.+)$/gm, '<li class="md-li">$1</li>')
-  // Wrap consecutive li elements in ul
-  result = result.replace(/(<li class="md-li">[\s\S]*?<\/li>)(\n<li class="md-li">)/g, '$1$2')
-  result = result.replace(/(<li class="md-li">[^<]*<\/li>(\n|$))+/g, '<ul class="md-ul">$&</ul>')
+  // Collapse blank lines between consecutive list items so they group together
+  result = result.replace(/(<\/li>)\n+(<li class="md-li">)/g, '$1\n$2')
+  result = result.replace(/(<li class="md-li">.*?<\/li>(\n|$))+/g, '<ul class="md-ul">$&</ul>')
 
   // Ordered lists: 1. item
   result = result.replace(/^\d+\. (.+)$/gm, '<li class="md-oli">$1</li>')
-  result = result.replace(/(<li class="md-oli">[^<]*<\/li>(\n|$))+/g, '<ol class="md-ol">$&</ol>')
+  // Collapse blank lines between consecutive ordered list items
+  result = result.replace(/(<\/li>)\n+(<li class="md-oli">)/g, '$1\n$2')
+  result = result.replace(/(<li class="md-oli">.*?<\/li>(\n|$))+/g, '<ol class="md-ol">$&</ol>')
 
   // Convert remaining newlines to <br> (but not inside code blocks or lists)
   result = result.replace(/\n/g, '<br>')
@@ -196,16 +183,16 @@ if (typeof window !== 'undefined') {
 <template>
   <div
     :class="[
-      'px-3 sm:px-4 py-4 sm:py-6 transition-colors',
+      'px-3 sm:px-4 py-3 sm:py-5 transition-colors',
       isUser ? 'message-user' : 'message-assistant'
     ]"
   >
-    <div class="flex items-start gap-2.5 sm:gap-4 max-w-3xl mx-auto">
+    <div class="flex items-start gap-2 sm:gap-3.5 max-w-3xl mx-auto">
       <!-- Avatar -->
       <div
         :class="[
-          'w-7 h-7 sm:w-8 sm:h-8 rounded-full flex items-center justify-center shrink-0 overflow-hidden ring-2 ring-offset-2 ring-offset-transparent',
-          isUser ? 'bg-gatales-input ring-gatales-border' : 'bg-gatales-accent ring-gatales-accent/30'
+          'w-6 h-6 sm:w-8 sm:h-8 rounded-full flex items-center justify-center shrink-0 overflow-hidden ring-1.5 sm:ring-2 ring-offset-1 sm:ring-offset-2 ring-offset-transparent',
+          isUser ? 'bg-gatales-input ring-gatales-border' : 'bg-white ring-gatales-accent/30'
         ]"
       >
         <!-- User avatar -->
@@ -215,20 +202,16 @@ if (typeof window !== 'undefined') {
             {{ userName.charAt(0).toUpperCase() }}
           </span>
         </template>
-        <!-- Assistant avatar (cat logo) -->
-        <svg v-else class="w-5 h-5 sm:w-6 sm:h-6 text-white" viewBox="0 0 100 100" fill="currentColor">
-          <path d="M50 15 L25 35 L25 60 Q25 80 50 85 Q75 80 75 60 L75 35 Z"/>
-          <path d="M25 35 L15 10 L35 30 Z"/>
-          <path d="M75 35 L85 10 L65 30 Z"/>
-        </svg>
+        <!-- Assistant avatar (logo) -->
+        <img v-else src="/logo-64.png" alt="El Cursales" class="w-4 h-4 sm:w-6 sm:h-6 object-contain" loading="lazy" />
       </div>
 
       <!-- Content -->
       <div class="flex-1 min-w-0 overflow-hidden">
-        <p class="text-[10px] sm:text-xs text-gatales-text-secondary mb-1 sm:mb-1.5 font-medium">
+        <p class="text-[11px] sm:text-xs text-gatales-text-secondary mb-0.5 sm:mb-1.5 font-medium">
           {{ isUser ? 'Tu' : 'El Cursales' }}
         </p>
-        <div class="text-sm sm:text-base text-gatales-text markdown-content leading-relaxed">
+        <div class="text-base text-gatales-text markdown-content leading-relaxed">
           <!-- Thinking indicator -->
           <div v-if="isThinking" class="thinking-indicator">
             <span class="thinking-icon">🍳</span>
@@ -265,38 +248,24 @@ if (typeof window !== 'undefined') {
           </div>
         </div>
 
-        <!-- Action buttons for assistant messages -->
-        <div v-if="canRetry || canRegenerate" class="mt-3 flex justify-start gap-2">
-          <!-- Retry button for failed/stopped -->
+        <!-- Retry button for failed/stopped assistant messages -->
+        <div v-if="canRetry" class="mt-2 sm:mt-3 flex justify-start gap-2">
           <button
-            v-if="canRetry"
             @click="handleRetry"
-            class="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-red-400 bg-red-500/10 hover:bg-red-500/20 border border-red-500/30 rounded-lg transition-colors"
+            class="inline-flex items-center gap-1.5 px-3 py-2 sm:py-1.5 text-xs font-medium text-red-400 bg-red-500/10 hover:bg-red-500/20 active:bg-red-500/30 border border-red-500/30 rounded-lg transition-colors touch-manipulation"
           >
             <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
             </svg>
             Reintentar
           </button>
-
-          <!-- Regenerate button for last assistant message -->
-          <button
-            v-if="canRegenerate"
-            @click="handleRegenerate"
-            class="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-gatales-text-secondary hover:text-gatales-text bg-gatales-input hover:bg-gatales-border border border-gatales-border rounded-lg transition-colors"
-          >
-            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-            </svg>
-            Regenerar respuesta
-          </button>
         </div>
 
         <!-- Resend button for user message if no response received -->
-        <div v-if="canResend" class="mt-3 flex justify-start">
+        <div v-if="canResend" class="mt-2 sm:mt-3 flex justify-start">
           <button
             @click="handleResend"
-            class="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-amber-400 bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 rounded-lg transition-colors"
+            class="inline-flex items-center gap-1.5 px-3 py-2 sm:py-1.5 text-xs font-medium text-amber-400 bg-amber-500/10 hover:bg-amber-500/20 active:bg-amber-500/30 border border-amber-500/30 rounded-lg transition-colors touch-manipulation"
           >
             <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
@@ -368,6 +337,7 @@ if (typeof window !== 'undefined') {
 .message-text {
   word-wrap: break-word;
   overflow-wrap: break-word;
+  word-break: break-word;
 }
 
 /* Markdown styles */
@@ -407,6 +377,7 @@ if (typeof window !== 'undefined') {
   overflow: hidden;
   background: #1e1e1e;
   border: 1px solid var(--gatales-border, #374151);
+  max-width: 100%;
 }
 
 .markdown-content :deep(.code-block-header) {
@@ -447,12 +418,20 @@ if (typeof window !== 'undefined') {
 
 .markdown-content :deep(.code-block) {
   margin: 0;
-  padding: 1em;
+  padding: 0.75em;
   overflow-x: auto;
   font-family: 'JetBrains Mono', 'Fira Code', monospace;
-  font-size: 0.8125em;
+  font-size: 0.75em;
   line-height: 1.5;
   color: #d4d4d4;
+  -webkit-overflow-scrolling: touch;
+}
+
+@media (min-width: 640px) {
+  .markdown-content :deep(.code-block) {
+    padding: 1em;
+    font-size: 0.8125em;
+  }
 }
 
 .markdown-content :deep(.code-block code) {

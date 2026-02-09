@@ -229,7 +229,7 @@ class ConversationController extends Controller
         ]);
 
         $user = $request->user();
-        $query = $validated['q'];
+        $query = str_replace(['%', '_'], ['\%', '\_'], $validated['q']);
 
         $conversations = Conversation::forUser($user->id)
             ->notArchived()

@@ -14,9 +14,10 @@ class ValidateWebhookSecret
      */
     public function handle(Request $request, Closure $next): Response
     {
-        $secret = $request->header('X-Webhook-Secret') ?? $request->input('webhook_secret');
+        $secret = $request->header('X-Webhook-Secret');
+        $expected = config('services.webhook.secret');
 
-        if (!$secret || $secret !== config('services.webhook.secret')) {
+        if (!$secret || !$expected || !hash_equals($expected, $secret)) {
             return response()->json([
                 'success' => false,
                 'message' => 'Acceso no autorizado',

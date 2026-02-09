@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Middleware\EnsureUserIsActive;
+use App\Http\Middleware\SecurityHeaders;
 use App\Http\Middleware\ValidateWebhookSecret;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
@@ -14,6 +15,9 @@ return Application::configure(basePath: dirname(__DIR__))
         health: '/up',
     )
     ->withMiddleware(function (Middleware $middleware): void {
+        // Global security headers
+        $middleware->append(SecurityHeaders::class);
+
         // Register custom middleware aliases
         $middleware->alias([
             'webhook.secret' => ValidateWebhookSecret::class,

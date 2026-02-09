@@ -41,15 +41,16 @@ function handleKeydown(e) {
 function autoResize() {
   if (textarea.value) {
     textarea.value.style.height = 'auto'
-    textarea.value.style.height = Math.min(textarea.value.scrollHeight, 200) + 'px'
+    const maxHeight = window.innerWidth < 640 ? 120 : 200
+    textarea.value.style.height = Math.min(textarea.value.scrollHeight, maxHeight) + 'px'
   }
 }
 </script>
 
 <template>
-  <div class="border-t border-gatales-border bg-gatales-bg p-2 sm:p-4 safe-area-bottom">
+  <div class="border-t border-gatales-border bg-gatales-bg pt-3 sm:pt-4 pb-safe-input px-3 sm:px-6 shrink-0">
     <div class="max-w-3xl mx-auto">
-      <form @submit.prevent="handleSubmit" class="relative">
+      <form @submit.prevent="handleSubmit" class="flex items-end gap-3">
         <textarea
           ref="textarea"
           v-model="message"
@@ -58,7 +59,7 @@ function autoResize() {
           :disabled="disabled"
           placeholder="Escribe tu mensaje..."
           rows="1"
-          class="w-full bg-gatales-input text-gatales-text text-base rounded-xl py-2.5 sm:py-3 pl-3 sm:pl-4 pr-11 sm:pr-12
+          class="flex-1 bg-gatales-input text-gatales-text text-base rounded-2xl py-3 px-4
                  border border-gatales-border focus:border-gatales-accent
                  focus:outline-none focus:ring-1 focus:ring-gatales-accent
                  placeholder-gatales-text-secondary resize-none
@@ -70,7 +71,7 @@ function autoResize() {
           v-if="isStreaming"
           type="button"
           @click="emit('stop')"
-          class="absolute right-1.5 sm:right-2 bottom-1.5 sm:bottom-2 p-2 rounded-lg
+          class="w-11 h-11 shrink-0 flex items-center justify-center rounded-xl self-center
                  bg-red-500 text-white
                  hover:bg-red-600 active:scale-95
                  transition-all touch-manipulation"
@@ -86,10 +87,10 @@ function autoResize() {
           v-else
           type="submit"
           :disabled="!canSend"
-          class="absolute right-1.5 sm:right-2 bottom-1.5 sm:bottom-2 p-2 rounded-lg
+          class="w-11 h-11 shrink-0 flex items-center justify-center rounded-xl self-center
                  bg-gatales-accent text-white
                  hover:bg-gatales-accent-hover active:scale-95
-                 disabled:opacity-50 disabled:cursor-not-allowed
+                 disabled:opacity-30 disabled:cursor-not-allowed
                  transition-all touch-manipulation"
         >
           <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -98,8 +99,8 @@ function autoResize() {
         </button>
       </form>
 
-      <p class="hidden sm:block text-xs text-gatales-text-secondary text-center mt-2">
-        Presiona Enter para enviar, Shift+Enter para nueva linea
+      <p class="text-[10px] sm:text-[11px] text-gatales-text-secondary/30 text-center mt-2 select-none">
+        elcursales.ai
       </p>
     </div>
   </div>

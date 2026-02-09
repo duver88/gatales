@@ -9,6 +9,7 @@ const authStore = useAuthStore()
 
 const password = ref('')
 const passwordConfirmation = ref('')
+const showPassword = ref(false)
 const errorMessage = ref('')
 const token = ref('')
 
@@ -47,13 +48,10 @@ async function handleSubmit() {
     <div class="w-full max-w-sm sm:max-w-md">
       <!-- Logo -->
       <div class="text-center mb-6 sm:mb-8">
-        <div class="w-16 h-16 bg-gatales-accent rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-lg shadow-gatales-accent/30">
-          <svg class="w-10 h-10 text-white" viewBox="0 0 100 100" fill="currentColor">
-            <path d="M50 15 L25 35 L25 60 Q25 80 50 85 Q75 80 75 60 L75 35 Z"/>
-            <path d="M25 35 L15 10 L35 30 Z"/>
-            <path d="M75 35 L85 10 L65 30 Z"/>
-          </svg>
-        </div>
+        <picture class="block w-16 h-16 mx-auto mb-4">
+          <source srcset="/logo-192.webp" type="image/webp" />
+          <img src="/logo-192.png" alt="El Cursales" class="w-full h-full object-contain" width="192" height="192" />
+        </picture>
         <h1 class="text-3xl sm:text-4xl font-bold text-gatales-accent">El Cursales</h1>
         <p class="text-sm sm:text-base text-gatales-text-secondary mt-2">Tu asistente de guiones de video</p>
       </div>
@@ -81,16 +79,33 @@ async function handleSubmit() {
             <label for="password" class="block text-sm font-medium text-gatales-text-secondary mb-1">
               Nueva contrasena
             </label>
-            <input
-              id="password"
-              v-model="password"
-              type="password"
-              required
-              minlength="8"
-              autocomplete="new-password"
-              class="input-field text-base"
-              placeholder="Minimo 8 caracteres"
-            />
+            <div class="relative">
+              <input
+                id="password"
+                v-model="password"
+                :type="showPassword ? 'text' : 'password'"
+                required
+                minlength="8"
+                autocomplete="new-password"
+                class="input-field text-base pr-10"
+                placeholder="Minimo 8 caracteres"
+              />
+              <button
+                type="button"
+                @click="showPassword = !showPassword"
+                class="absolute right-3 top-1/2 -translate-y-1/2 text-gatales-text-secondary hover:text-gatales-text transition-colors"
+                tabindex="-1"
+                :aria-label="showPassword ? 'Ocultar contrasena' : 'Mostrar contrasena'"
+              >
+                <svg v-if="showPassword" class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.878 9.878L3 3m6.878 6.878L21 21" />
+                </svg>
+                <svg v-else class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                </svg>
+              </button>
+            </div>
           </div>
 
           <!-- Password Confirmation -->
@@ -98,16 +113,33 @@ async function handleSubmit() {
             <label for="passwordConfirmation" class="block text-sm font-medium text-gatales-text-secondary mb-1">
               Confirmar contrasena
             </label>
-            <input
-              id="passwordConfirmation"
-              v-model="passwordConfirmation"
-              type="password"
-              required
-              minlength="8"
-              autocomplete="new-password"
-              class="input-field text-base"
-              placeholder="Repite tu contrasena"
-            />
+            <div class="relative">
+              <input
+                id="passwordConfirmation"
+                v-model="passwordConfirmation"
+                :type="showPassword ? 'text' : 'password'"
+                required
+                minlength="8"
+                autocomplete="new-password"
+                class="input-field text-base pr-10"
+                placeholder="Repite tu contrasena"
+              />
+              <button
+                type="button"
+                @click="showPassword = !showPassword"
+                class="absolute right-3 top-1/2 -translate-y-1/2 text-gatales-text-secondary hover:text-gatales-text transition-colors"
+                tabindex="-1"
+                :aria-label="showPassword ? 'Ocultar contrasena' : 'Mostrar contrasena'"
+              >
+                <svg v-if="showPassword" class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.878 9.878L3 3m6.878 6.878L21 21" />
+                </svg>
+                <svg v-else class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                </svg>
+              </button>
+            </div>
           </div>
 
           <!-- Submit button -->

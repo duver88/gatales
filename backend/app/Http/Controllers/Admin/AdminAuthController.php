@@ -76,4 +76,55 @@ class AdminAuthController extends Controller
             ],
         ]);
     }
+
+    /**
+     * Update admin profile
+     */
+    public function updateProfile(Request $request): JsonResponse
+    {
+        $admin = $request->user();
+
+        $validated = $request->validate([
+            'name' => 'sometimes|string|max:255',
+            'email' => 'sometimes|email|unique:admins,email,' . $admin->id,
+        ]);
+
+        $admin->update($validated);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Perfil actualizado correctamente',
+            'admin' => [
+                'id' => $admin->id,
+                'name' => $admin->name,
+                'email' => $admin->email,
+            ],
+        ]);
+    }
+
+    /**
+     * Change admin password
+     */
+    public function changePassword(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'current_password' => 'required|string',
+            'password' => 'required|string|min:8|confirmed',
+        ]);
+
+        $admin = $request->user();
+
+        if (!Hash::check($validated['current_password'], $admin->password)) {
+            throw ValidationException::withMessages([
+                'current_password' => ['La contraseña actual es incorrecta.'],
+            ]);
+        }
+
+        $admin->update(['password' => $validated['password']]);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Contraseña actualizada correctamente',
+        ]);
+    }
 }

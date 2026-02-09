@@ -17,21 +17,21 @@ return [
 
     'paths' => ['api/*', 'sanctum/csrf-cookie'],
 
-    'allowed_methods' => ['*'],
+    'allowed_methods' => ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
 
-    // In production, change this to your actual frontend domain
-    'allowed_origins' => [
-        'http://localhost:5173',
-        'http://127.0.0.1:5173',
-    ],
+    'allowed_origins' => array_filter([
+        env('FRONTEND_URL', 'https://elcursales.ai'),
+        env('APP_ENV') === 'local' ? 'http://localhost:5173' : null,
+        env('APP_ENV') === 'local' ? 'http://127.0.0.1:5173' : null,
+    ]),
 
     'allowed_origins_patterns' => [],
 
-    'allowed_headers' => ['*'],
+    'allowed_headers' => ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'X-Webhook-Secret'],
 
     'exposed_headers' => [],
 
-    'max_age' => 0,
+    'max_age' => 600,
 
     // Required for Sanctum cookie-based authentication
     'supports_credentials' => true,

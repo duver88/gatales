@@ -1,0 +1,38 @@
+{
+  "name": "El Cursales - Asistente de Guiones",
+  "short_name": "El Cursales",
+  "description": "Crea guiones de video profesionales con inteligencia artificial",
+  "start_url": "/login",
+  "display": "standalone",
+  "background_color": "#000000",
+  "theme_color": "#00be88",
+  "lang": "es",
+  "icons": [
+    {
+      "src": "/favicon-16.png",
+      "sizes": "16x16",
+      "type": "image/png"
+    },
+    {
+      "src": "/favicon-32.png",
+      "sizes": "32x32",
+      "type": "image/png"
+    },
+    {
+      "src": "/logo-64.png",
+      "sizes": "64x64",
+      "type": "image/png"
+    },
+    {
+      "src": "/apple-touch-icon.png",
+      "sizes": "180x180",
+      "type": "image/png"
+    },
+    {
+      "src": "/logo-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}

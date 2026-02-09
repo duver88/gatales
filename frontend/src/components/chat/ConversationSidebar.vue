@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, watch } from 'vue'
+import { ref, computed, watch, nextTick } from 'vue'
 import { useConversationsStore } from '../../stores/conversations'
 
 const emit = defineEmits(['select', 'close'])
@@ -10,6 +10,10 @@ const searchInput = ref('')
 const showContextMenu = ref(null)
 const editingId = ref(null)
 const editingTitle = ref('')
+const editInputRef = ref(null)
+
+// Delete confirmation
+const deleteConfirm = ref(null)
 
 // Debounced search
 let searchTimeout = null
@@ -61,6 +65,11 @@ function startEditing(conv) {
   editingId.value = conv.id
   editingTitle.value = conv.title || 'Nueva conversacion'
   closeContextMenu()
+  nextTick(() => {
+    if (editInputRef.value) {
+      editInputRef.value.select()
+    }
+  })
 }
 
 async function saveTitle() {
@@ -89,15 +98,24 @@ async function handleArchive(id) {
   }
 }
 
-async function handleDelete(id) {
+function handleDelete(id) {
   closeContextMenu()
-  if (confirm('¿Eliminar esta conversacion?')) {
+  deleteConfirm.value = id
+}
+
+async function confirmDelete() {
+  if (deleteConfirm.value) {
     try {
-      await conversationsStore.deleteConversation(id)
+      await conversationsStore.deleteConversation(deleteConfirm.value)
     } catch (e) {
       console.error('Error deleting conversation:', e)
     }
   }
+  deleteConfirm.value = null
+}
+
+function cancelDelete() {
+  deleteConfirm.value = null
 }
 
 function formatDate(dateStr) {
@@ -114,13 +132,13 @@ function formatDate(dateStr) {
 </script>
 
 <template>
-  <aside class="w-64 bg-gatales-sidebar border-r border-gatales-border flex flex-col h-full">
+  <aside class="w-[280px] sm:w-64 bg-gatales-sidebar border-r border-gatales-border flex flex-col h-full safe-area-top safe-area-bottom">
     <!-- Header - New Chat Button -->
     <div class="p-2">
       <button
         @click="handleNewConversation"
         :disabled="conversationsStore.isCreating"
-        class="w-full flex items-center gap-3 px-3 py-2 text-gatales-text hover:bg-gatales-input rounded-lg transition-colors disabled:opacity-50 text-sm"
+        class="w-full flex items-center gap-3 px-3 py-2.5 sm:py-2 text-gatales-text hover:bg-gatales-input active:bg-gatales-border rounded-lg transition-colors disabled:opacity-50 text-sm touch-manipulation"
       >
         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
@@ -132,14 +150,14 @@ function formatDate(dateStr) {
     <!-- Search -->
     <div class="px-2 pb-2">
       <div class="relative">
-        <svg class="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gatales-text-secondary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <svg class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gatales-text-secondary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
         </svg>
         <input
           v-model="searchInput"
           type="text"
           placeholder="Buscar..."
-          class="w-full pl-8 pr-3 py-1.5 bg-gatales-input border border-gatales-border rounded-md text-xs text-gatales-text placeholder-gatales-text-secondary focus:outline-none focus:ring-1 focus:ring-gatales-accent focus:border-transparent"
+          class="w-full pl-9 pr-3 py-2 bg-gatales-input border border-gatales-border rounded-lg text-sm text-gatales-text placeholder-gatales-text-secondary focus:outline-none focus:ring-1 focus:ring-gatales-accent focus:border-transparent"
         />
       </div>
     </div>
@@ -164,7 +182,7 @@ function formatDate(dateStr) {
         <template v-for="(group, key) in displayConversations" :key="key">
           <div v-if="group.conversations?.length > 0" class="mb-3">
             <!-- Group Title -->
-            <div class="px-3 py-1 text-[10px] font-medium text-gatales-text-secondary uppercase tracking-wider">
+            <div class="px-3 py-1.5 text-xs font-semibold text-gatales-text-secondary uppercase tracking-wider">
               {{ group.title }}
             </div>
 
@@ -176,41 +194,41 @@ function formatDate(dateStr) {
                 @click="handleSelect(conv.id)"
                 @contextmenu="(e) => openContextMenu(e, conv.id)"
                 :class="[
-                  'group relative flex items-center gap-2 px-2 py-1.5 rounded-md cursor-pointer transition-colors',
+                  'group relative flex items-center gap-2.5 px-2.5 py-2.5 sm:py-2 rounded-lg cursor-pointer transition-colors touch-manipulation',
                   conversationsStore.currentConversationId === conv.id
                     ? 'bg-gatales-accent/10 text-gatales-accent'
-                    : 'hover:bg-gatales-input text-gatales-text'
+                    : 'hover:bg-gatales-input active:bg-gatales-input text-gatales-text'
                 ]"
               >
                 <!-- Chat Icon -->
-                <svg class="w-3.5 h-3.5 shrink-0 opacity-60" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z" />
+                <svg class="w-4 h-4 shrink-0 opacity-60" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012-2v8a2 2 0 01-2 2h-5l-5 5v-5z" />
                 </svg>
 
                 <!-- Title (editable) -->
                 <div class="flex-1 min-w-0">
                   <input
                     v-if="editingId === conv.id"
+                    ref="editInputRef"
                     v-model="editingTitle"
                     @blur="saveTitle"
                     @keyup.enter="saveTitle"
                     @keyup.escape="cancelEdit"
                     @click.stop
-                    class="w-full bg-gatales-input border border-gatales-border rounded px-1.5 py-0.5 text-xs focus:outline-none focus:ring-1 focus:ring-gatales-accent"
-                    autofocus
+                    class="w-full bg-gatales-input border border-gatales-border rounded px-2 py-1 text-sm text-gatales-text focus:outline-none focus:ring-1 focus:ring-gatales-accent"
                   />
                   <p v-else :class="[
-                    'text-xs truncate',
+                    'text-sm truncate',
                     conv.message_count === 0 ? 'italic opacity-60' : ''
                   ]">{{ conv.title || 'Nueva conversacion' }}</p>
                 </div>
 
-                <!-- Actions Button (on hover) -->
+                <!-- Actions Button (visible on mobile, hover on desktop) -->
                 <button
                   @click.stop="openContextMenu($event, conv.id)"
-                  class="hidden group-hover:flex p-0.5 rounded hover:bg-gatales-border transition-colors"
+                  class="flex sm:hidden sm:group-hover:flex p-1 rounded hover:bg-gatales-border active:bg-gatales-border transition-colors touch-manipulation opacity-50 sm:opacity-100"
                 >
-                  <svg class="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20">
+                  <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
                     <path d="M10 6a2 2 0 110-4 2 2 0 010 4zM10 12a2 2 0 110-4 2 2 0 010 4zM10 18a2 2 0 110-4 2 2 0 010 4z" />
                   </svg>
                 </button>
@@ -219,24 +237,24 @@ function formatDate(dateStr) {
                 <Transition name="fade">
                   <div
                     v-if="showContextMenu === conv.id"
-                    class="absolute right-0 top-full mt-0.5 z-50 w-32 bg-gatales-sidebar border border-gatales-border rounded-md shadow-lg py-0.5"
+                    class="absolute right-0 top-full mt-0.5 z-50 w-36 bg-gatales-sidebar border border-gatales-border rounded-lg shadow-lg py-1"
                     @click.stop
                   >
                     <button
                       @click="startEditing(conv)"
-                      class="w-full text-left px-2.5 py-1.5 text-xs text-gatales-text hover:bg-gatales-input"
+                      class="w-full text-left px-3 py-2 text-sm text-gatales-text hover:bg-gatales-input active:bg-gatales-input transition-colors"
                     >
                       Renombrar
                     </button>
                     <button
                       @click="handleArchive(conv.id)"
-                      class="w-full text-left px-2.5 py-1.5 text-xs text-gatales-text hover:bg-gatales-input"
+                      class="w-full text-left px-3 py-2 text-sm text-gatales-text hover:bg-gatales-input active:bg-gatales-input transition-colors"
                     >
                       Archivar
                     </button>
                     <button
                       @click="handleDelete(conv.id)"
-                      class="w-full text-left px-2.5 py-1.5 text-xs text-red-400 hover:bg-gatales-input"
+                      class="w-full text-left px-3 py-2 text-sm text-red-400 hover:bg-gatales-input active:bg-gatales-input transition-colors"
                     >
                       Eliminar
                     </button>
@@ -253,6 +271,37 @@ function formatDate(dateStr) {
         </div>
       </div>
     </div>
+
+    <!-- Delete Confirmation Modal -->
+    <Teleport to="body">
+      <Transition name="modal">
+        <div
+          v-if="deleteConfirm"
+          class="fixed inset-0 z-100 flex items-center justify-center p-4"
+        >
+          <div class="absolute inset-0 bg-black/60" @click="cancelDelete"></div>
+          <div class="relative bg-gatales-sidebar border border-gatales-border rounded-xl shadow-2xl w-full max-w-xs p-5">
+            <p class="text-sm text-gatales-text text-center mb-5">
+              Quieres eliminar esta conversacion?
+            </p>
+            <div class="flex gap-3">
+              <button
+                @click="cancelDelete"
+                class="flex-1 py-2.5 rounded-lg text-sm font-medium text-gatales-text bg-gatales-input hover:bg-gatales-border active:bg-gatales-border transition-colors"
+              >
+                Cancelar
+              </button>
+              <button
+                @click="confirmDelete"
+                class="flex-1 py-2.5 rounded-lg text-sm font-medium text-white bg-red-500 hover:bg-red-600 active:bg-red-600 transition-colors"
+              >
+                Eliminar
+              </button>
+            </div>
+          </div>
+        </div>
+      </Transition>
+    </Teleport>
   </aside>
 </template>
 
@@ -263,6 +312,15 @@ function formatDate(dateStr) {
 }
 .fade-enter-from,
 .fade-leave-to {
+  opacity: 0;
+}
+
+.modal-enter-active,
+.modal-leave-active {
+  transition: opacity 0.2s ease;
+}
+.modal-enter-from,
+.modal-leave-to {
   opacity: 0;
 }
 </style>

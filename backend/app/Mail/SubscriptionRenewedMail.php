@@ -28,7 +28,7 @@ class SubscriptionRenewedMail extends Mailable
     public function envelope(): Envelope
     {
         return new Envelope(
-            subject: '🎉 ¡Tu suscripción ha sido renovada! - Tus tokens están listos',
+            subject: 'Tu suscripcion ha sido renovada - Tus tokens estan listos',
         );
     }
 

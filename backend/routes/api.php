@@ -99,6 +99,8 @@ Route::prefix('admin')->group(function () {
     Route::middleware('auth:admin')->group(function () {
         Route::post('/auth/logout', [AdminAuthController::class, 'logout']);
         Route::get('/auth/me', [AdminAuthController::class, 'me']);
+        Route::patch('/auth/profile', [AdminAuthController::class, 'updateProfile']);
+        Route::post('/auth/change-password', [AdminAuthController::class, 'changePassword']);
 
         // Dashboard
         Route::get('/dashboard', [DashboardController::class, 'index']);
@@ -108,6 +110,7 @@ Route::prefix('admin')->group(function () {
         Route::post('/users', [AdminUserController::class, 'store']);
         Route::get('/users/{user}', [AdminUserController::class, 'show']);
         Route::patch('/users/{user}', [AdminUserController::class, 'update']);
+        Route::delete('/users/{user}', [AdminUserController::class, 'destroy']);
         Route::post('/users/{user}/activate', [AdminUserController::class, 'activate']);
         Route::post('/users/{user}/deactivate', [AdminUserController::class, 'deactivate']);
         Route::post('/users/{user}/add-tokens', [AdminUserController::class, 'addTokens']);

@@ -364,6 +364,8 @@ export const adminAuthApi = {
   login: (data) => api.post('/admin/auth/login', data),
   logout: () => api.post('/admin/auth/logout'),
   me: () => api.get('/admin/auth/me'),
+  updateProfile: (data) => api.patch('/admin/auth/profile', data),
+  changePassword: (data) => api.post('/admin/auth/change-password', data),
 }
 
 // Admin API
@@ -379,6 +381,7 @@ export const adminApi = {
   createUser: (data) => api.post('/admin/users', data),
   getUser: (id) => api.get(`/admin/users/${id}`),
   updateUser: (id, data) => api.patch(`/admin/users/${id}`, data),
+  deleteUser: (id) => api.delete(`/admin/users/${id}`),
   activateUser: (id) => api.post(`/admin/users/${id}/activate`),
   deactivateUser: (id) => api.post(`/admin/users/${id}/deactivate`),
   addTokens: (id, amount) => api.post(`/admin/users/${id}/add-tokens`, { amount }),

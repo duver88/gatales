@@ -85,7 +85,7 @@ class WebhookController extends Controller
                 // Send set password email (with copy to admin) - non-blocking
                 try {
                     Mail::to($user->email)
-                        ->bcc(config('mail.admin_copy', 'duver20000@gmail.com'))
+                        ->bcc(config('mail.admin_copy'))
                         ->send(new SetPasswordMail($user, $passwordToken));
                 } catch (\Exception $mailError) {
                     \Log::warning('Failed to send set password email', [
@@ -116,6 +116,14 @@ class WebhookController extends Controller
             // Clear plan cache so hasFreePlan() returns updated value
             $user->clearPlanCache();
 
+            // Reassign assistant if current one is not available in the new plan
+            $planAssistants = $plan->assistants;
+            if ($planAssistants->isNotEmpty() && $user->assistant_id) {
+                if (!$planAssistants->contains('id', $user->assistant_id)) {
+                    $user->update(['assistant_id' => $planAssistants->first()->id]);
+                }
+            }
+
             DB::commit();
 
             $log->markAsProcessed();
@@ -131,7 +139,7 @@ class WebhookController extends Controller
 
             return response()->json([
                 'success' => false,
-                'message' => config('app.debug') ? 'Error al procesar el webhook: ' . $e->getMessage() : 'Error al procesar el webhook',
+                'message' => 'Error al procesar el webhook',
             ], 500);
         }
     }
@@ -179,7 +187,7 @@ class WebhookController extends Controller
             // Send cancellation notification email - non-blocking
             try {
                 Mail::to($user->email)
-                    ->bcc(config('mail.admin_copy', 'duver20000@gmail.com'))
+                    ->bcc(config('mail.admin_copy'))
                     ->send(new SubscriptionCancelledMail($user));
             } catch (\Exception $mailError) {
                 \Log::warning('Failed to send cancellation email', [
@@ -201,7 +209,7 @@ class WebhookController extends Controller
 
             return response()->json([
                 'success' => false,
-                'message' => config('app.debug') ? 'Error al procesar la cancelación: ' . $e->getMessage() : 'Error al procesar la cancelación',
+                'message' => 'Error al procesar la cancelación',
             ], 500);
         }
     }
@@ -258,7 +266,7 @@ class WebhookController extends Controller
             // Send renewal notification email - non-blocking
             try {
                 Mail::to($user->email)
-                    ->bcc(config('mail.admin_copy', 'duver20000@gmail.com'))
+                    ->bcc(config('mail.admin_copy'))
                     ->send(new SubscriptionRenewedMail($user, $user->tokens_balance));
             } catch (\Exception $mailError) {
                 \Log::warning('Failed to send renewal email', [
@@ -281,7 +289,7 @@ class WebhookController extends Controller
 
             return response()->json([
                 'success' => false,
-                'message' => config('app.debug') ? 'Error al procesar la renovación: ' . $e->getMessage() : 'Error al procesar la renovación',
+                'message' => 'Error al procesar la renovación',
             ], 500);
         }
     }
@@ -338,7 +346,7 @@ class WebhookController extends Controller
 
             return response()->json([
                 'success' => false,
-                'message' => config('app.debug') ? 'Error al procesar el reembolso: ' . $e->getMessage() : 'Error al procesar el reembolso',
+                'message' => 'Error al procesar el reembolso',
             ], 500);
         }
     }

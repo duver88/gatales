@@ -5,7 +5,7 @@ import { useAuthStore } from '../../stores/auth'
 import { useChatStore } from '../../stores/chat'
 import { useConversationsStore } from '../../stores/conversations'
 import { useThemeStore } from '../../stores/theme'
-import { authApi } from '../../services/api'
+import { authApi, chatApi } from '../../services/api'
 import ChatMessage from '../../components/chat/ChatMessage.vue'
 import ChatInput from '../../components/chat/ChatInput.vue'
 import TokenIndicator from '../../components/chat/TokenIndicator.vue'
@@ -23,6 +23,12 @@ const showAssistantModal = ref(false)
 const showSidebar = ref(false)
 const showPasswordModal = ref(false)
 const showAvatarModal = ref(false)
+const showArchivedPanel = ref(false)
+
+// Archived conversations
+const archivedConversations = ref([])
+const isLoadingArchived = ref(false)
+const deleteArchivedConfirm = ref(null)
 
 // Password change form
 const passwordForm = ref({
@@ -310,15 +316,6 @@ async function handleRetryMessage() {
   }
 }
 
-async function handleRegenerateMessage() {
-  try {
-    await chatStore.regenerateResponse()
-    scrollToBottom()
-  } catch (e) {
-    console.error('Error regenerating message:', e)
-  }
-}
-
 async function handleResendMessage(message) {
   try {
     // Remove the user message that failed to get a response
@@ -436,6 +433,47 @@ async function handleUploadAvatar() {
   }
 }
 
+// Archived conversations handlers
+async function openArchivedPanel() {
+  showUserMenu.value = false
+  showArchivedPanel.value = true
+  isLoadingArchived.value = true
+  try {
+    const response = await chatApi.getArchivedConversations()
+    archivedConversations.value = response.data.conversations || []
+  } catch (e) {
+    console.error('Error loading archived conversations:', e)
+    archivedConversations.value = []
+  } finally {
+    isLoadingArchived.value = false
+  }
+}
+
+async function handleUnarchive(id) {
+  try {
+    await conversationsStore.unarchiveConversation(id)
+    archivedConversations.value = archivedConversations.value.filter(c => c.id !== id)
+  } catch (e) {
+    console.error('Error unarchiving conversation:', e)
+  }
+}
+
+function handleDeleteArchived(id) {
+  deleteArchivedConfirm.value = id
+}
+
+async function confirmDeleteArchived() {
+  if (deleteArchivedConfirm.value) {
+    try {
+      await conversationsStore.deleteConversation(deleteArchivedConfirm.value)
+      archivedConversations.value = archivedConversations.value.filter(c => c.id !== deleteArchivedConfirm.value)
+    } catch (e) {
+      console.error('Error deleting archived conversation:', e)
+    }
+  }
+  deleteArchivedConfirm.value = null
+}
+
 async function handleDeleteAvatar() {
   if (!confirm('¿Eliminar tu foto de perfil?')) return
 
@@ -455,7 +493,7 @@ async function handleDeleteAvatar() {
 </script>
 
 <template>
-  <div class="flex h-screen bg-gatales-bg">
+  <div class="flex h-dvh bg-gatales-bg">
     <!-- Conversation Sidebar -->
     <Transition name="slide-sidebar">
       <ConversationSidebar
@@ -478,12 +516,12 @@ async function handleDeleteAvatar() {
     <!-- Main Chat Area -->
     <div class="flex-1 flex flex-col min-w-0">
       <!-- Header -->
-      <header class="flex items-center justify-between px-2 sm:px-4 py-2 sm:py-3 bg-gatales-sidebar border-b border-gatales-border safe-area-top">
-        <div class="flex items-center gap-2">
+      <header class="flex items-center justify-between px-3 sm:px-5 pb-3.5 sm:pb-4 pt-safe-header bg-gatales-sidebar border-b border-gatales-border shrink-0">
+        <div class="flex items-center gap-1.5 sm:gap-2 min-w-0 flex-1">
           <!-- Sidebar Toggle (mobile) -->
           <button
             @click="showSidebar = !showSidebar"
-            class="p-2 rounded-lg hover:bg-gatales-input transition-colors md:hidden"
+            class="p-2 rounded-lg hover:bg-gatales-input active:bg-gatales-border transition-colors md:hidden shrink-0 touch-manipulation"
           >
             <svg class="w-5 h-5 text-gatales-text" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16" />
@@ -491,24 +529,16 @@ async function handleDeleteAvatar() {
           </button>
 
           <!-- Logo + Brand -->
-          <div class="hidden sm:flex items-center gap-2">
-            <div class="w-8 h-8 bg-gatales-accent rounded-lg flex items-center justify-center">
-              <!-- Cat head silhouette -->
-              <svg class="w-6 h-6 text-white" viewBox="0 0 100 100" fill="currentColor">
-                <!-- Cat head -->
-                <path d="M50 15 L25 35 L25 60 Q25 80 50 85 Q75 80 75 60 L75 35 Z"/>
-                <!-- Left ear -->
-                <path d="M25 35 L15 10 L35 30 Z"/>
-                <!-- Right ear -->
-                <path d="M75 35 L85 10 L65 30 Z"/>
-              </svg>
+          <div class="hidden sm:flex items-center gap-2 shrink-0">
+            <div class="w-8 h-8 flex items-center justify-center">
+              <img src="/logo-64.png" alt="El Cursales" class="w-full h-full object-contain" loading="lazy" />
             </div>
             <h1 class="text-lg sm:text-xl font-bold text-gatales-accent">El Cursales</h1>
           </div>
 
           <!-- Conversation Title -->
-          <div class="flex items-center gap-2">
-            <span class="text-sm text-gatales-text-secondary truncate max-w-[150px] sm:max-w-[200px]">
+          <div class="flex items-center min-w-0">
+            <span class="text-xs sm:text-sm text-gatales-text-secondary truncate max-w-[120px] sm:max-w-[200px]">
               {{ conversationTitle }}
             </span>
           </div>
@@ -517,19 +547,19 @@ async function handleDeleteAvatar() {
           <button
             v-if="chatStore.availableAssistants.length > 1"
             @click="showAssistantModal = true"
-            class="flex items-center gap-1 px-2 py-1 rounded-lg bg-gatales-input hover:bg-gatales-border transition-colors text-xs sm:text-sm"
+            class="flex items-center gap-1 px-1.5 sm:px-2 py-1 rounded-lg bg-gatales-input hover:bg-gatales-border active:bg-gatales-border transition-colors text-xs shrink-0 touch-manipulation"
           >
-            <svg class="w-4 h-4 text-gatales-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <svg class="w-3.5 h-3.5 sm:w-4 sm:h-4 text-gatales-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
             </svg>
-            <span class="text-gatales-text-secondary max-w-[60px] sm:max-w-[100px] truncate">{{ assistantName }}</span>
+            <span class="text-gatales-text-secondary max-w-[50px] sm:max-w-[100px] truncate hidden xs:inline">{{ assistantName }}</span>
             <svg class="w-3 h-3 text-gatales-text-secondary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
             </svg>
           </button>
         </div>
 
-        <div class="flex items-center gap-2 sm:gap-4">
+        <div class="flex items-center gap-1.5 sm:gap-4 shrink-0">
           <!-- Token Indicator (solo muestra % de uso) -->
           <TokenIndicator
             :balance="authStore.tokensBalance"
@@ -540,7 +570,7 @@ async function handleDeleteAvatar() {
           <div class="relative">
             <button
               @click="showUserMenu = !showUserMenu"
-              class="flex items-center gap-1 sm:gap-2 p-1.5 sm:px-3 sm:py-2 rounded-lg hover:bg-gatales-input transition-colors"
+              class="flex items-center gap-1 sm:gap-2 p-1.5 sm:px-3 sm:py-2 rounded-lg hover:bg-gatales-input active:bg-gatales-border transition-colors touch-manipulation"
             >
               <div class="w-8 h-8 rounded-full bg-gatales-accent flex items-center justify-center text-white font-medium text-sm overflow-hidden">
                 <img v-if="authStore.user?.avatar_url" :src="authStore.user.avatar_url" class="w-full h-full object-cover" alt="Avatar" />
@@ -554,7 +584,7 @@ async function handleDeleteAvatar() {
             <!-- Dropdown -->
             <div
               v-if="showUserMenu"
-              class="absolute right-0 mt-2 w-56 sm:w-48 bg-gatales-sidebar border border-gatales-border rounded-lg shadow-lg py-1 z-50"
+              class="absolute right-0 mt-2 w-48 sm:w-52 bg-gatales-sidebar border border-gatales-border rounded-lg shadow-lg py-1 z-50"
             >
               <div class="px-4 py-3 border-b border-gatales-border">
                 <p class="text-sm font-medium text-gatales-text truncate">{{ authStore.user?.name }}</p>
@@ -595,6 +625,16 @@ async function handleDeleteAvatar() {
                 </svg>
                 Cambiar contraseña
               </button>
+              <!-- Archived -->
+              <button
+                @click="openArchivedPanel"
+                class="w-full flex items-center gap-3 px-4 py-3 text-sm text-gatales-text hover:bg-gatales-input active:bg-gatales-border"
+              >
+                <svg class="w-5 h-5 text-gatales-text-secondary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4" />
+                </svg>
+                Archivados
+              </button>
               <button
                 @click="handleClearHistory"
                 class="w-full text-left px-4 py-3 text-sm text-gatales-text hover:bg-gatales-input active:bg-gatales-border"
@@ -622,7 +662,7 @@ async function handleDeleteAvatar() {
       <!-- Messages Area -->
       <main
         ref="messagesContainer"
-        class="flex-1 overflow-y-auto overscroll-contain"
+        class="flex-1 overflow-y-auto overscroll-contain min-h-0"
       >
         <!-- Loading State (when switching conversations) -->
         <div
@@ -659,18 +699,18 @@ async function handleDeleteAvatar() {
         <!-- Empty State (new conversation) -->
         <div
           v-else-if="!chatStore.hasMessages"
-          class="h-full flex items-center justify-center px-4"
+          class="h-full flex items-center justify-center px-6"
         >
-          <div class="text-center max-w-sm sm:max-w-md">
+          <div class="text-center max-w-xs sm:max-w-md">
             <div class="w-14 h-14 sm:w-16 sm:h-16 mx-auto mb-4 rounded-full bg-gatales-accent/20 flex items-center justify-center">
               <svg class="w-7 h-7 sm:w-8 sm:h-8 text-gatales-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z" />
               </svg>
             </div>
-            <h2 class="text-lg sm:text-xl font-semibold text-gatales-text mb-2">
+            <h2 class="text-base sm:text-xl font-semibold text-gatales-text mb-2">
               {{ assistantName }}
             </h2>
-            <p class="text-sm sm:text-base text-gatales-text-secondary">
+            <p class="text-sm text-gatales-text-secondary leading-relaxed">
               {{ welcomeMessage }}
             </p>
           </div>
@@ -687,19 +727,14 @@ async function handleDeleteAvatar() {
             :is-last-message="index === chatStore.messages.length - 1"
             :is-generating="chatStore.isSending || chatStore.isStreaming || chatStore.isThinking"
             @retry="handleRetryMessage"
-            @regenerate="handleRegenerateMessage"
             @resend="handleResendMessage(message)"
           />
 
           <!-- Typing indicator (only when sending but not streaming/thinking - those show content directly) -->
-          <div v-if="chatStore.isSending && !chatStore.isStreaming && !chatStore.isThinking" class="px-3 sm:px-4 py-4 sm:py-6 message-assistant">
-            <div class="flex items-start gap-3 sm:gap-4 max-w-3xl mx-auto">
-              <div class="w-7 h-7 sm:w-8 sm:h-8 rounded-full bg-gatales-accent flex items-center justify-center flex-shrink-0">
-                <svg class="w-5 h-5 sm:w-6 sm:h-6 text-white" viewBox="0 0 100 100" fill="currentColor">
-                  <path d="M50 15 L25 35 L25 60 Q25 80 50 85 Q75 80 75 60 L75 35 Z"/>
-                  <path d="M25 35 L15 10 L35 30 Z"/>
-                  <path d="M75 35 L85 10 L65 30 Z"/>
-                </svg>
+          <div v-if="chatStore.isSending && !chatStore.isStreaming && !chatStore.isThinking" class="px-3 sm:px-4 py-3 sm:py-5 message-assistant">
+            <div class="flex items-start gap-2 sm:gap-3.5 max-w-3xl mx-auto">
+              <div class="w-6 h-6 sm:w-8 sm:h-8 rounded-full bg-white flex items-center justify-center flex-shrink-0 overflow-hidden">
+                <img src="/logo-64.png" alt="El Cursales" class="w-4 h-4 sm:w-6 sm:h-6 object-contain" loading="lazy" />
               </div>
               <div class="typing-indicator">
                 <span></span>
@@ -735,7 +770,7 @@ async function handleDeleteAvatar() {
       <Transition name="slide">
         <div
           v-if="showAssistantModal"
-          class="fixed inset-y-0 right-0 z-50 w-full max-w-sm bg-gatales-sidebar border-l border-gatales-border shadow-xl flex flex-col"
+          class="fixed inset-y-0 right-0 z-50 w-full sm:max-w-sm bg-gatales-sidebar border-l border-gatales-border shadow-xl flex flex-col safe-area-top safe-area-bottom"
         >
           <!-- Header -->
           <div class="flex items-center justify-between p-4 border-b border-gatales-border">
@@ -818,15 +853,127 @@ async function handleDeleteAvatar() {
       </Transition>
     </Teleport>
 
+    <!-- Archived Conversations Panel -->
+    <Teleport to="body">
+      <Transition name="slide">
+        <div
+          v-if="showArchivedPanel"
+          class="fixed inset-y-0 right-0 z-50 w-full sm:max-w-sm bg-gatales-sidebar border-l border-gatales-border shadow-xl flex flex-col safe-area-top safe-area-bottom"
+        >
+          <!-- Header -->
+          <div class="flex items-center justify-between p-4 border-b border-gatales-border">
+            <div>
+              <h3 class="text-lg font-semibold text-gatales-text">Archivados</h3>
+              <p class="text-xs text-gatales-text-secondary mt-0.5">Conversaciones archivadas</p>
+            </div>
+            <button
+              @click="showArchivedPanel = false"
+              class="p-2 rounded-lg hover:bg-gatales-input transition-colors"
+            >
+              <svg class="w-5 h-5 text-gatales-text-secondary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
+
+          <!-- List -->
+          <div class="flex-1 overflow-y-auto">
+            <!-- Loading -->
+            <div v-if="isLoadingArchived" class="flex justify-center py-10">
+              <svg class="animate-spin h-6 w-6 text-gatales-accent" fill="none" viewBox="0 0 24 24">
+                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+              </svg>
+            </div>
+
+            <!-- Empty -->
+            <div v-else-if="archivedConversations.length === 0" class="text-center py-10 px-4">
+              <svg class="w-12 h-12 mx-auto text-gatales-text-secondary/30 mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4" />
+              </svg>
+              <p class="text-sm text-gatales-text-secondary">No hay conversaciones archivadas</p>
+            </div>
+
+            <!-- Conversations -->
+            <div v-else class="p-3 space-y-1">
+              <div
+                v-for="conv in archivedConversations"
+                :key="conv.id"
+                class="flex items-center gap-3 px-3 py-3 rounded-lg bg-gatales-input/50 hover:bg-gatales-input transition-colors"
+              >
+                <svg class="w-4 h-4 shrink-0 text-gatales-text-secondary opacity-60" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012-2v8a2 2 0 01-2 2h-5l-5 5v-5z" />
+                </svg>
+                <p class="flex-1 text-sm text-gatales-text truncate">{{ conv.title }}</p>
+                <div class="flex items-center gap-1 shrink-0">
+                  <!-- Unarchive -->
+                  <button
+                    @click="handleUnarchive(conv.id)"
+                    class="p-1.5 rounded-lg hover:bg-gatales-border active:bg-gatales-border transition-colors"
+                    title="Restaurar"
+                  >
+                    <svg class="w-4 h-4 text-gatales-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6" />
+                    </svg>
+                  </button>
+                  <!-- Delete -->
+                  <button
+                    @click="handleDeleteArchived(conv.id)"
+                    class="p-1.5 rounded-lg hover:bg-red-500/20 active:bg-red-500/20 transition-colors"
+                    title="Eliminar"
+                  >
+                    <svg class="w-4 h-4 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                    </svg>
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </Transition>
+    </Teleport>
+
+    <!-- Delete Archived Confirmation Modal -->
+    <Teleport to="body">
+      <Transition name="modal">
+        <div
+          v-if="deleteArchivedConfirm"
+          class="fixed inset-0 z-100 flex items-center justify-center p-4"
+        >
+          <div class="absolute inset-0 bg-black/60" @click="deleteArchivedConfirm = null"></div>
+          <div class="relative bg-gatales-sidebar border border-gatales-border rounded-xl shadow-2xl w-full max-w-xs p-5">
+            <p class="text-sm text-gatales-text text-center mb-5">
+              Quieres eliminar esta conversacion?
+            </p>
+            <div class="flex gap-3">
+              <button
+                @click="deleteArchivedConfirm = null"
+                class="flex-1 py-2.5 rounded-lg text-sm font-medium text-gatales-text bg-gatales-input hover:bg-gatales-border active:bg-gatales-border transition-colors"
+              >
+                Cancelar
+              </button>
+              <button
+                @click="confirmDeleteArchived"
+                class="flex-1 py-2.5 rounded-lg text-sm font-medium text-white bg-red-500 hover:bg-red-600 active:bg-red-600 transition-colors"
+              >
+                Eliminar
+              </button>
+            </div>
+          </div>
+        </div>
+      </Transition>
+    </Teleport>
+
     <!-- Password Change Modal -->
     <Teleport to="body">
       <Transition name="fade">
         <div
           v-if="showPasswordModal"
-          class="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4"
+          class="fixed inset-0 z-50 bg-black/60 flex items-end sm:items-center justify-center sm:p-4"
           @click.self="showPasswordModal = false"
         >
-          <div class="w-full max-w-md bg-gatales-sidebar border border-gatales-border rounded-xl shadow-xl">
+          <div class="w-full sm:max-w-md bg-gatales-sidebar border border-gatales-border rounded-t-xl sm:rounded-xl shadow-xl max-h-[90vh] overflow-y-auto">
             <!-- Header -->
             <div class="flex items-center justify-between p-4 border-b border-gatales-border">
               <h3 class="text-lg font-semibold text-gatales-text">Cambiar contraseña</h3>
@@ -916,10 +1063,10 @@ async function handleDeleteAvatar() {
       <Transition name="fade">
         <div
           v-if="showAvatarModal"
-          class="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4"
+          class="fixed inset-0 z-50 bg-black/60 flex items-end sm:items-center justify-center sm:p-4"
           @click.self="showAvatarModal = false"
         >
-          <div class="w-full max-w-md bg-gatales-sidebar border border-gatales-border rounded-xl shadow-xl">
+          <div class="w-full sm:max-w-md bg-gatales-sidebar border border-gatales-border rounded-t-xl sm:rounded-xl shadow-xl max-h-[90vh] overflow-y-auto">
             <!-- Header -->
             <div class="flex items-center justify-between p-4 border-b border-gatales-border">
               <h3 class="text-lg font-semibold text-gatales-text">Cambiar foto de perfil</h3>
@@ -1032,6 +1179,16 @@ async function handleDeleteAvatar() {
 .slide-sidebar-enter-from,
 .slide-sidebar-leave-to {
   transform: translateX(-100%);
+}
+
+/* Modal transition */
+.modal-enter-active,
+.modal-leave-active {
+  transition: opacity 0.2s ease;
+}
+.modal-enter-from,
+.modal-leave-to {
+  opacity: 0;
 }
 
 /* Line clamp utility */
