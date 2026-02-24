@@ -306,6 +306,26 @@ class DeepSeekService
             ];
         }
 
+        // Inject priority reminder with context from the last assistant message
+        // This anchors the AI to the most recent exchange and prevents confusion with older messages
+        if ($previousMessages->count() > 2) {
+            // Find the last assistant message to include as reference
+            $lastAssistantMsg = $previousMessages->where('role', 'assistant')->last();
+            $lastAssistantSnippet = $lastAssistantMsg
+                ? mb_substr($lastAssistantMsg->content, 0, 500)
+                : '';
+
+            $reminder = 'RECORDATORIO CRÍTICO: Tu mensaje más reciente al usuario fue: "' . $lastAssistantSnippet . '".'
+                . ' Responde ÚNICAMENTE basándote en ESE mensaje. Si el usuario envía un número (1, 2, 3), genera el contenido de la opción correspondiente de ESE mensaje, NO de mensajes anteriores.'
+                . ' Si el usuario envía un número que no es 1, 2 o 3, pregúntale cuál de las 3 opciones de tu último mensaje quiere.'
+                . ' El producto o negocio válido es el del intercambio más reciente. IGNORA productos o ideas de mensajes anteriores.';
+
+            $messages[] = [
+                'role' => 'system',
+                'content' => $reminder,
+            ];
+        }
+
         // Add the new user message only if it's not already the last message in context
         // (prevents duplication when the message was already saved to DB before calling this)
         $lastMsg = $previousMessages->last();

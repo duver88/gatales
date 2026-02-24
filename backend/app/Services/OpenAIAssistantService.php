@@ -175,14 +175,14 @@ class OpenAIAssistantService
                 ->orderBy('created_at', 'desc')
                 ->limit($contextLimit)
                 ->get()
-                ->reverse()
+                ->sortBy('created_at')
                 ->values();
         } else {
             $previousMessages = Message::where('user_id', $user->id)
                 ->orderBy('created_at', 'desc')
                 ->limit($contextLimit)
                 ->get()
-                ->reverse()
+                ->sortBy('created_at')
                 ->values();
         }
 
@@ -194,11 +194,35 @@ class OpenAIAssistantService
             ];
         }
 
-        // Add the new user message
-        $input[] = [
-            'role' => 'user',
-            'content' => $message,
-        ];
+        // Inject priority reminder with context from the last assistant message
+        // This anchors the AI to the most recent exchange and prevents confusion with older messages
+        if ($previousMessages->count() > 2) {
+            // Find the last assistant message to include as reference
+            $lastAssistantMsg = $previousMessages->where('role', 'assistant')->last();
+            $lastAssistantSnippet = $lastAssistantMsg
+                ? mb_substr($lastAssistantMsg->content, 0, 500)
+                : '';
+
+            $reminder = 'RECORDATORIO CRÍTICO: Tu mensaje más reciente al usuario fue: "' . $lastAssistantSnippet . '".'
+                . ' Responde ÚNICAMENTE basándote en ESE mensaje. Si envío un número (1, 2, 3), genera el contenido de la opción correspondiente de ESE mensaje, NO de mensajes anteriores.'
+                . ' Si envío un número que no es 1, 2 o 3, pregúntame cuál de las 3 opciones de tu último mensaje quiero.'
+                . ' El producto o negocio válido es el del intercambio más reciente. IGNORA productos o ideas de mensajes anteriores.';
+
+            $input[] = [
+                'role' => 'user',
+                'content' => $reminder,
+            ];
+        }
+
+        // Add the new user message only if it's not already the last message in context
+        // (prevents duplication when the message was already saved to DB before calling this)
+        $lastMsg = $previousMessages->last();
+        if (!$lastMsg || $lastMsg->role !== 'user' || $lastMsg->content !== $message) {
+            $input[] = [
+                'role' => 'user',
+                'content' => $message,
+            ];
+        }
 
         return $input;
     }
